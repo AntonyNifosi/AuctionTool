@@ -805,6 +805,9 @@ def render_prices_by_realm(item_id: int):
     
     df = pd.DataFrame(df_data)
     
+    # Tronquer les noms de serveurs trop longs pour l'affichage
+    df["Serveur_Court"] = df["Serveur"].apply(lambda x: x[:12] + "..." if len(x) > 15 else x)
+    
     # Tri par défaut par prix croissant
     df = df.sort_values("Prix Min (Gold)")
     
@@ -815,17 +818,18 @@ def render_prices_by_realm(item_id: int):
     # Graphique des prix par serveur
     fig = px.bar(
         df,
-        x="Serveur",
+        x="Serveur_Court",
         y="Prix Min (Gold)",
         title="Prix Minimum par Serveur",
-        labels={"Prix Min (Gold)": "Prix (Gold)", "Serveur": ""},
+        labels={"Prix Min (Gold)": "Prix (Gold)", "Serveur_Court": ""},
         color="Prix Min (Gold)",
-        color_continuous_scale="RdYlGn_r"
+        color_continuous_scale="RdYlGn_r",
+        custom_data=["Serveur"]  # Garder le nom complet pour le tooltip
     )
     
-    # Amélioration du tooltip
+    # Amélioration du tooltip avec nom complet
     fig.update_traces(
-        hovertemplate="<b>%{x}</b><br>Prix: %{y:,.2f}g<extra></extra>"
+        hovertemplate="<b>%{customdata[0]}</b><br>Prix: %{y:,.2f}g<extra></extra>"
     )
 
     fig.update_layout(
@@ -833,14 +837,16 @@ def render_prices_by_realm(item_id: int):
         height=400,
         showlegend=False,
         yaxis_title="Prix (Gold)",
+        margin=dict(r=120),  # Marge droite plus large pour la légende
         coloraxis_colorbar=dict(
-            title="Prix (Gold)",
+            title="Prix",
             thicknessmode="pixels",
             thickness=15,
             lenmode="fraction",
             len=0.7,
             yanchor="middle",
-            y=0.5
+            y=0.5,
+            tickformat=",.0f"
         )
     )
     st.plotly_chart(fig, use_container_width=True)
