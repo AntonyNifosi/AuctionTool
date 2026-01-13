@@ -1,0 +1,35 @@
+"""
+Configuration de l'application WoW Housing Price Tracker
+"""
+import os
+from dotenv import load_dotenv
+
+# Charger les variables d'environnement du fichier .env
+load_dotenv()
+
+# Credentials Blizzard API
+BLIZZARD_CLIENT_ID = os.getenv("BLIZZARD_CLIENT_ID", "")
+BLIZZARD_CLIENT_SECRET = os.getenv("BLIZZARD_CLIENT_SECRET", "")
+
+# Configuration API Blizzard - Région EU
+API_REGION = "eu"
+API_BASE_URL = f"https://{API_REGION}.api.blizzard.com"
+AUTH_URL = "https://oauth.battle.net/token"
+
+# Namespace pour les données dynamiques (auction house)
+DYNAMIC_NAMESPACE = f"dynamic-{API_REGION}"
+# Namespace pour les données statiques (items, decor)
+STATIC_NAMESPACE = f"static-{API_REGION}"
+
+# Locale par défaut
+DEFAULT_LOCALE = "fr_FR"
+
+# Configuration de la base de données
+DATABASE_PATH = "housing_data.db"
+
+# Configuration du cache
+CACHE_DURATION_HOURS = 1  # Durée de validité du cache des auctions
+ITEMS_CACHE_DURATION_HOURS = 24  # Durée de validité du cache des items
+
+# Configuration des tendances
+TREND_WEEKS = 3  # Nombre de semaines pour calculer la tendance
