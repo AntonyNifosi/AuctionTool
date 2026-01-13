@@ -33,3 +33,7 @@ ITEMS_CACHE_DURATION_HOURS = 24  # Durée de validité du cache des items
 
 # Configuration des tendances
 TREND_WEEKS = 3  # Nombre de semaines pour calculer la tendance
+
+# Serveur par défaut (None = premier de la liste, ou spécifier le nom exact)
+# Exemples: "Hyjal", "Archimonde", "Ysondre"
+DEFAULT_REALM_NAME = os.getenv("DEFAULT_REALM", None)

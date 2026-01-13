@@ -114,13 +114,59 @@ class BlizzardAPI:
     
     def get_all_realms_with_names(self) -> List[Dict[str, Any]]:
         """
-        Récupère tous les serveurs avec leurs noms
+        Récupère tous les serveurs avec leurs noms en une seule requête via Search API
         """
+        try:
+            # Utiliser l'API Search pour récupérer tous les connected realms d'un coup
+            # On demande l'ID et les real,s
+            params = {
+                "namespace": DYNAMIC_NAMESPACE,
+                "_pageSize": 1000,  # Suffisant pour tous les serveurs EU/US
+                "_page": 1,
+                "status.type": "UP" # Optionnel: filtrer ceux qui sont up
+            }
+            
+            # Note: l'endpoint de search pour connected-realm
+            data = self._make_request("/data/wow/search/connected-realm", DYNAMIC_NAMESPACE, params)
+            results = data.get("results", [])
+            
+            realms_list = []
+            
+            for item in results:
+                data = item.get("data", {})
+                realm_id = data.get("id")
+                
+                # Extraire la population (FULL, HIGH, MEDIUM, LOW, etc.)
+                population_data = data.get("population", {})
+                population_type = population_data.get("type", "UNKNOWN") if population_data else "UNKNOWN"
+                
+                realms_data = data.get("realms", [])
+                realm_names = [r.get("name", {}).get(DEFAULT_LOCALE, "") for r in realms_data]
+                
+                # Filtrer les noms vides
+                realm_names = [n for n in realm_names if n]
+                
+                if realm_id and realm_names:
+                    realms_list.append({
+                        "id": realm_id,
+                        "name": " / ".join(realm_names),
+                        "population": population_type,
+                        "realms": realms_data
+                    })
+            
+            return sorted(realms_list, key=lambda x: x["name"])
+            
+        except Exception as e:
+            # Fallback en cas d'erreur sur le search (ex: endpoint indisponible)
+            print(f"Search API error: {e}, falling back to index")
+            return self._get_all_realms_slow_fallback()
+
+    def _get_all_realms_slow_fallback(self) -> List[Dict[str, Any]]:
+        """Fallback: méthode lente originale"""
         realms_index = self.get_connected_realms_index()
         realms = []
         
         for realm_ref in realms_index:
-            # Extraire l'ID du href
             href = realm_ref.get("href", "")
             try:
                 realm_id = int(href.split("/connected-realm/")[1].split("?")[0])

@@ -7,6 +7,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+import time
 from typing import Dict, List, Optional
 
 from blizzard_api import get_api, BlizzardAPIError
@@ -229,6 +230,107 @@ def load_housing_items():
         return dm.get_housing_items()
 
 
+def perform_global_scan():
+    """Effectue un scan complet de tous les serveurs"""
+    api = get_api()
+    dm = get_data_manager()
+    
+    st_status = st.status("🔄 Mise à jour globale des données (cela peut prendre 1 à 2 minutes)...", expanded=True)
+    
+    try:
+        # 1. Charger les items de housing pour avoir la liste
+        st_status.write("📚 Chargement du catalogue d'items...")
+        housing_items = load_housing_items()
+        housing_item_ids = {item["item_id"] for item in housing_items}
+        
+        # 2. Charger la liste des serveurs (Optimisé)
+        st_status.write("🌍 Récupération de la liste des serveurs...")
+        realms = api.get_all_realms_with_names()
+        
+        # 3. Boucle sur les serveurs
+        total_realms = len(realms)
+        progress_bar = st_status.progress(0, text=f"Scan des serveurs (0/{total_realms})")
+        
+        scanned_count = 0
+        
+        for i, realm in enumerate(realms):
+            realm_name = realm["name"]
+            realm_id = realm["id"]
+            realm_population = realm.get("population", "UNKNOWN")
+            
+            # Mise à jour progress bar
+            progress_bar.progress((i + 1) / total_realms, text=f"Scan: {realm_name} ({i+1}/{total_realms})")
+            
+            try:
+                # Sauvegarder le serveur si nouveau (avec population)
+                dm.save_realm(realm_id, realm_name, realm_population)
+                
+                # Fetch auctions
+                all_auctions = api.get_auctions(realm_id)
+                
+                # Filtrer en mémoire (rapide)
+                # On prépare les données pour insertion batch si possible, 
+                # ou on boucle avec record_price_data (SQLite est rapide en local)
+                
+                # Grouper par item_id
+                item_stats = {}
+                
+                for auction in all_auctions:
+                    item_id = auction.get("item", {}).get("id")
+                    if item_id in housing_item_ids:
+                        if item_id not in item_stats:
+                            item_stats[item_id] = {"prices": [], "qty": 0}
+                        
+                        price = auction.get("buyout") or auction.get("unit_price", 0)
+                        qty = auction.get("quantity", 1)
+                        
+                        if price > 0:
+                            item_stats[item_id]["prices"].append(price)
+                            item_stats[item_id]["qty"] += qty
+                
+                # Enregistrer stats
+                for item_id, stats in item_stats.items():
+                    prices = stats["prices"]
+                    if prices:
+                        min_price = min(prices)
+                        avg_price = sum(prices) / len(prices)
+                        total_qty = stats["qty"]
+                        auction_count = len(prices) # Approx si stack > 1 mais ok
+                        
+                        dm.record_price_data(
+                            item_id=item_id,
+                            realm_id=realm_id,
+                            min_price=min_price,
+                            avg_price=avg_price,
+                            total_quantity=total_qty,
+                            auction_count=auction_count
+                        )
+                
+                scanned_count += 1
+                
+            except Exception as e:
+                # On continue même si un serveur plante
+                print(f"Error scanning {realm_name}: {e}")
+                continue
+                
+        st_status.update(label=f"✅ Mise à jour terminée! ({scanned_count} serveurs scannés)", state="complete", expanded=False)
+        time.sleep(1) # Petit délai pour voir le succès
+        
+    except Exception as e:
+        st_status.update(label=f"❌ Erreur durant la mise à jour: {str(e)}", state="error")
+
+
+def check_startup_scan():
+    """Vérifie si un scan au démarrage est nécessaire"""
+    dm = get_data_manager()
+    
+    # Vérifier l'âge de la dernière donnée
+    # On peut faire une requête rapide pour avoir le MAX(recorded_at) global
+    # Mais data_manager n'a pas cette méthode publique. On va l'improviser ou l'ajouter.
+    # Pour l'instant, on regarde item_summary du premier serveur chargé si dispo, sinon on force.
+    pass # TODO: Implémenter logique précise avec DB
+
+
 def fetch_auction_data(realm_id: int, housing_items: List[Dict]):
     """Récupère et enregistre les données d'auction pour un serveur"""
     try:
@@ -296,15 +398,28 @@ def render_sidebar():
     
     # Créer les options du dropdown
     realm_options = {realm["name"]: realm["id"] for realm in realms}
+    realm_names = list(realm_options.keys())
+    
+    # Déterminer l'index par défaut
+    from config import DEFAULT_REALM_NAME
+    default_index = 0
+    if DEFAULT_REALM_NAME and DEFAULT_REALM_NAME in realm_names:
+        default_index = realm_names.index(DEFAULT_REALM_NAME)
     
     selected_realm_name = st.sidebar.selectbox(
         "🌍 Serveur de référence",
-        options=list(realm_options.keys()),
+        options=realm_names,
+        index=default_index,
         help="Sélectionnez le serveur à utiliser pour les données par défaut"
     )
     
     if selected_realm_name:
         st.session_state.selected_realm_id = realm_options[selected_realm_name]
+    
+    # Bouton pour définir comme défaut
+    if st.sidebar.button("⭐ Définir comme défaut", use_container_width=True, help="Enregistre ce serveur comme défaut au prochain lancement"):
+        save_default_realm(selected_realm_name)
+        st.sidebar.success(f"'{selected_realm_name}' défini comme défaut!")
     
     st.sidebar.markdown("---")
     
@@ -329,11 +444,70 @@ def render_sidebar():
     return st.session_state.selected_realm_id
 
 
+def save_default_realm(realm_name: str):
+    """Sauvegarde le serveur par défaut dans le fichier .env"""
+    import os
+    env_path = ".env"
+    lines = []
+    found = False
+    
+    if os.path.exists(env_path):
+        with open(env_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+    
+    # Chercher et remplacer DEFAULT_REALM
+    new_lines = []
+    for line in lines:
+        if line.startswith("DEFAULT_REALM="):
+            new_lines.append(f'DEFAULT_REALM="{realm_name}"\n')
+            found = True
+        else:
+            new_lines.append(line)
+    
+    if not found:
+        new_lines.append(f'DEFAULT_REALM="{realm_name}"\n')
+    
+    with open(env_path, 'w', encoding='utf-8') as f:
+        f.writelines(new_lines)
+
+
+def check_startup_scan():
+    """Vérifie si un scan au démarrage est nécessaire (données > 1h)"""
+    dm = get_data_manager()
+    
+    last_update = dm.get_last_price_update()
+    should_scan = False
+    
+    if last_update is None:
+        should_scan = True
+        st.info("👋 Bienvenue ! Premier démarrage détecté.")
+    else:
+        # Si last_update est naive, on le rend aware (timezone locale ou UTC selon DB)
+        # SQLite stocke en UTC par défaut avec CURRENT_TIMESTAMP
+        from datetime import timezone
+        
+        if last_update.tzinfo is None:
+            # On assume UTC pour être safe avec la DB
+            last_update = last_update.replace(tzinfo=timezone.utc)
+            
+        now = datetime.now(timezone.utc)
+        age = now - last_update
+        
+        if age.total_seconds() > 3600: # 1 heure
+            should_scan = True
+            st.info(f"🕒 Dernière mise à jour il y a {int(age.total_seconds()//60)} minutes.")
+
+    if should_scan:
+        perform_global_scan()
+
+
+
 @st.cache_data(ttl=60)
 def get_cached_items_summary(realm_id: int):
     """Wrapper avec cache pour récupérer le résumé des items"""
     dm = get_data_manager()
     return dm.get_items_summary(realm_id)
+
 
 def render_item_list(realm_id: int):
     """Affiche la liste des items de housing"""
@@ -389,13 +563,11 @@ def render_item_list(realm_id: int):
     
     # --- OPTIMISATION : Conversion Vectorisée ---
     # Convertir directement la liste de dicts en DataFrame Pandas
-    # Cela évite les boucles Python lentes
     if not items_summary:
         st.info("Aucune donnée disponible pour ce serveur.")
         return
 
     # Utiliser un cache de session pour le DataFrame brut pour éviter de le recréer à chaque frappe
-    # Clé unique basée sur le serveur et le nombre d'items pour invalider si changement
     cache_key = f"raw_df_{realm_id}_{len(items_summary)}"
     
     if cache_key not in st.session_state:
@@ -437,26 +609,16 @@ def render_item_list(realm_id: int):
     
     if not df_filtered.empty:
         # --- FORMATAGE VECTORISÉ POUR AFFICHAGE ---
-        # Au lieu de boucler, on crée les colonnes d'affichage directement
-        
-        # Copie pour affichage (display dataframe)
         df_display = df_filtered.copy()
         
         # Renommage colonne ID pour la clé interne
         df_display["Item ID"] = df_display["item_id"]
         
-        # Formatage Prix, Tendance etc. via fonctions appliquées vectoriellement ou map
-        # Note: map/apply est plus rapide que for loop, mais moins que vectorisation pure. 
-        # Pour le formatage de string (12,000g), apply est nécessaire.
-        
-        # On peut optimiser format_gold pour accepter des Series, mais format_gold utilise f-string complexe.
-        # On va utiliser apply qui est acceptable sur <2000 lignes filtrées
+        # Icône (Future proofing, même si vide pour l'instant)
+        df_display["Icone"] = df_display.get("icon_url", "")
         
         df_display["Nom"] = df_display["name"]
         df_display["Catégorie"] = df_display["category"].fillna("N/A")
-        
-        # Optimisation: ne formater que ce qui est visible (Streamlit gère la pagination du rendu)
-        # Mais on doit passer tout le DF.
         
         df_display["Prix Min"] = df_display["min_price"].apply(format_gold)
         df_display["Prix Moyen"] = df_display["avg_price"].apply(lambda x: format_gold(int(x)) if pd.notnull(x) else None)
@@ -470,8 +632,8 @@ def render_item_list(realm_id: int):
             
         df_display["Volume Δ"] = df_display["volume_change"].apply(fmt_vol)
 
-        # Sélection des colonnes finales
-        final_cols = ["Item ID", "Nom", "Catégorie", "Prix Min", "Prix Moyen", 
+        # Sélection des colonnes finales (Ajout Icone)
+        final_cols = ["Item ID", "Icone", "Nom", "Catégorie", "Prix Min", "Prix Moyen", 
                       "Quantité", "Enchères", "Tendance", "Volume Δ"]
         
         df_final = df_display[final_cols]
@@ -485,6 +647,7 @@ def render_item_list(realm_id: int):
             key=f"housing_table_{realm_id}",
             column_config={
                 "Item ID": st.column_config.NumberColumn("ID", width="small"),
+                "Icone": st.column_config.ImageColumn("Icon", width="small"),
                 "Nom": st.column_config.TextColumn("Nom", width="medium"),
                 "Catégorie": st.column_config.TextColumn("Catégorie", width="small"),
                 "Quantité": st.column_config.TextColumn("Qté", width="small"),
@@ -494,9 +657,6 @@ def render_item_list(realm_id: int):
         
         if len(event.selection.rows) > 0:
             selected_row_index = event.selection.rows[0]
-            # Attention: df_final a un index potentiellement non séquentiel suite au filtrage !
-            # event.selection.rows retourne l'index POSITIONNEL dans le dataframe affiché (0 à N-1)
-            # Donc on doit utiliser iloc sur df_final
             selected_item_id = df_final.iloc[selected_row_index]["Item ID"]
             st.session_state.selected_item_id = int(selected_item_id)
         
@@ -571,7 +731,13 @@ def render_item_details(item: Dict, current_realm_id: int):
     st.markdown("---")
     
     # Onglets pour les différentes vues
-    tab1, tab2, tab3 = st.tabs(["📊 Prix par Serveur", "📈 Historique", "📉 Statistiques"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📊 Prix par Serveur", 
+        "📈 Historique Prix", 
+        "📦 Volume",
+        "🏆 Meilleurs Serveurs",
+        "📉 Statistiques"
+    ])
     
     with tab1:
         render_prices_by_realm(item["item_id"])
@@ -580,6 +746,12 @@ def render_item_details(item: Dict, current_realm_id: int):
         render_price_history(item["item_id"], current_realm_id)
     
     with tab3:
+        render_volume_history(item["item_id"], current_realm_id)
+    
+    with tab4:
+        render_best_servers_to_sell(item["item_id"])
+    
+    with tab5:
         render_statistics(item["item_id"], current_realm_id)
 
 
@@ -603,10 +775,28 @@ def render_prices_by_realm(item_id: int):
     
     # Créer un DataFrame
     df_data = []
+    
+    # Traduction des types de population
+    population_labels = {
+        "FULL": "🔴 Complet",
+        "HIGH": "🟠 Élevée", 
+        "MEDIUM": "🟡 Moyenne",
+        "LOW": "🟢 Faible",
+        "NEW_PLAYERS": "🆕 Nouveaux",
+        "UNKNOWN": "❓ Inconnu"
+    }
+    
     for rp in realm_prices_with_data:
+        # Conversion Copper -> Gold pour le graphique
+        min_price_gold = rp.get("min_price", 0) / 10000.0
+        
+        pop_type = rp.get("population") or "UNKNOWN"
+        pop_label = population_labels.get(pop_type, pop_type)
+        
         df_data.append({
             "Serveur": rp["realm_name"],
-            "Prix Min": rp.get("min_price"),
+            "Population": pop_label,
+            "Prix Min (Gold)": min_price_gold,
             "Prix Min (formaté)": format_gold(rp.get("min_price")),
             "Prix Moyen": format_gold(int(rp["avg_price"]) if rp.get("avg_price") else None),
             "Quantité": rp.get("total_quantity") or 0,
@@ -614,32 +804,66 @@ def render_prices_by_realm(item_id: int):
         })
     
     df = pd.DataFrame(df_data)
-    df = df.sort_values("Prix Min")
     
+    # Tri par défaut par prix croissant
+    df = df.sort_values("Prix Min (Gold)")
+    
+    # Note pour l'utilisateur si seul un serveur est affiché
+    if len(df) <= 1:
+        st.caption("ℹ️ Astuce : Pour comparer avec d'autres serveurs, sélectionnez-les dans la barre latérale et cliquez sur 'Rafraîchir les données'. L'historique sera conservé.")
+
     # Graphique des prix par serveur
     fig = px.bar(
         df,
         x="Serveur",
-        y="Prix Min",
+        y="Prix Min (Gold)",
         title="Prix Minimum par Serveur",
-        labels={"Prix Min": "Prix (copper)", "Serveur": ""},
-        color="Prix Min",
+        labels={"Prix Min (Gold)": "Prix (Gold)", "Serveur": ""},
+        color="Prix Min (Gold)",
         color_continuous_scale="RdYlGn_r"
     )
+    
+    # Amélioration du tooltip
+    fig.update_traces(
+        hovertemplate="<b>%{x}</b><br>Prix: %{y:,.2f}g<extra></extra>"
+    )
+
     fig.update_layout(
         xaxis_tickangle=-45,
         height=400,
-        showlegend=False
+        showlegend=False,
+        yaxis_title="Prix (Gold)",
+        coloraxis_colorbar=dict(
+            title="Prix (Gold)",
+            thicknessmode="pixels",
+            thickness=15,
+            lenmode="fraction",
+            len=0.7,
+            yanchor="middle",
+            y=0.5
+        )
     )
     st.plotly_chart(fig, use_container_width=True)
     
-    # Tableau des prix
+    # Tableau des prix (triable via clic sur les colonnes)
+    st.markdown("#### 📊 Comparaison détaillée (cliquez sur une colonne pour trier)")
+    
+    df_display = df[["Serveur", "Population", "Prix Min (formaté)", "Prix Moyen", "Quantité", "Enchères"]].rename(
+        columns={"Prix Min (formaté)": "Prix Min"}
+    )
+    
     st.dataframe(
-        df[["Serveur", "Prix Min (formaté)", "Prix Moyen", "Quantité", "Enchères"]].rename(
-            columns={"Prix Min (formaté)": "Prix Min"}
-        ),
+        df_display,
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
+        column_config={
+            "Serveur": st.column_config.TextColumn("Serveur", width="medium"),
+            "Population": st.column_config.TextColumn("Population", width="small"),
+            "Prix Min": st.column_config.TextColumn("Prix Min", width="small"),
+            "Prix Moyen": st.column_config.TextColumn("Prix Moyen", width="small"),
+            "Quantité": st.column_config.NumberColumn("Quantité", width="small"),
+            "Enchères": st.column_config.NumberColumn("Enchères", width="small"),
+        }
     )
 
 
@@ -684,21 +908,196 @@ def render_price_history(item_id: int, realm_id: int):
         xaxis_title="Date",
         yaxis_title="Prix (gold)",
         height=400,
-        hovermode="x unified"
+        hovermode="x unified",
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="right",
+            x=0.99,
+            bgcolor="rgba(0,0,0,0.5)",
+            bordercolor="#FFD100",
+            borderwidth=1
+        )
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def render_volume_history(item_id: int, realm_id: int):
+    """Affiche l'historique du volume d'un item"""
+    dm = get_data_manager()
+    
+    history = dm.get_price_history(item_id, realm_id, days=21)
+    
+    if not history:
+        st.info("Pas assez de données historiques pour le volume.")
+        st.caption("Rafraîchissez régulièrement les données pour construire l'historique.")
+        return
+    
+    # Créer un DataFrame
+    df = pd.DataFrame(history)
+    df["recorded_at"] = pd.to_datetime(df["recorded_at"])
+    
+    # Graphique de l'évolution du volume
+    fig = go.Figure()
+    
+    fig.add_trace(go.Scatter(
+        x=df["recorded_at"],
+        y=df["total_quantity"],
+        name="Quantité totale",
+        fill="tozeroy",
+        line=dict(color="#4CAF50", width=2),
+        mode="lines+markers"
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=df["recorded_at"],
+        y=df["auction_count"],
+        name="Nombre d'enchères",
+        line=dict(color="#FF9800", width=2, dash="dash"),
+        mode="lines+markers"
+    ))
+    
+    fig.update_layout(
+        title="📦 Évolution du Volume sur 3 semaines",
+        xaxis_title="Date",
+        yaxis_title="Quantité",
+        height=400,
+        hovermode="x unified",
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
     )
     
     st.plotly_chart(fig, use_container_width=True)
     
-    # Graphique du volume
-    fig2 = px.area(
-        df,
-        x="recorded_at",
-        y="total_quantity",
-        title="Évolution du Volume",
-        labels={"recorded_at": "Date", "total_quantity": "Quantité totale"}
+    # Statistiques de volume
+    if len(df) >= 2:
+        vol_start = df.iloc[0]["total_quantity"] if df.iloc[0]["total_quantity"] else 0
+        vol_end = df.iloc[-1]["total_quantity"] if df.iloc[-1]["total_quantity"] else 0
+        
+        # Si le volume a diminué (moins d'items en vente), c'est qu'ils se sont vendus = positif
+        # Si le volume a augmenté (plus d'items en vente), c'est plus de concurrence = négatif
+        items_exchanged = vol_start - vol_end  # Inversé: diminution = ventes = positif
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Volume actuel", f"{vol_end:,}")
+        with col2:
+            # Affichage: + = items vendus, - = plus de concurrence
+            st.metric("Items échangés", f"{items_exchanged:+,}", 
+                     delta=f"{items_exchanged:+,}" if items_exchanged != 0 else None,
+                     delta_color="normal" if items_exchanged > 0 else "inverse")
+        with col3:
+            avg_vol = df["total_quantity"].mean()
+            st.metric("Volume moyen", f"{int(avg_vol):,}" if pd.notna(avg_vol) else "N/A")
+
+
+def render_best_servers_to_sell(item_id: int):
+    """Affiche le classement des meilleurs serveurs pour vendre cet item"""
+    dm = get_data_manager()
+    
+    realm_prices = dm.get_all_realms_prices(item_id)
+    
+    # Filtrer les serveurs avec des données
+    realm_prices_with_data = [rp for rp in realm_prices if rp.get("min_price") and rp.get("total_quantity")]
+    
+    if not realm_prices_with_data or len(realm_prices_with_data) < 2:
+        st.info("Pas assez de données pour calculer le classement.")
+        st.caption("Le classement nécessite des données de prix et volume sur plusieurs serveurs.")
+        return
+    
+    # Extraire les valeurs pour normalisation
+    prices = [rp["avg_price"] or rp["min_price"] for rp in realm_prices_with_data]
+    volumes = [rp["total_quantity"] for rp in realm_prices_with_data]
+    
+    max_price = max(prices) if prices else 1
+    max_volume = max(volumes) if volumes else 1
+    min_price = min(prices) if prices else 0
+    min_volume = min(volumes) if volumes else 0
+    
+    # Traduction population
+    population_scores = {
+        "FULL": 1.0,
+        "HIGH": 0.8,
+        "MEDIUM": 0.6,
+        "LOW": 0.4,
+        "NEW_PLAYERS": 0.3,
+        "UNKNOWN": 0.5
+    }
+    
+    population_labels = {
+        "FULL": "🔴 Complet",
+        "HIGH": "🟠 Élevée", 
+        "MEDIUM": "🟡 Moyenne",
+        "LOW": "🟢 Faible",
+        "NEW_PLAYERS": "🆕 Nouveaux",
+        "UNKNOWN": "❓ Inconnu"
+    }
+    
+    # Calculer le score pour chaque serveur
+    # Score = (Prix normalisé * 0.5) + (Volume normalisé * 0.4) + (Population * 0.1)
+    # Prix: plus c'est cher, mieux c'est pour vendre
+    # Volume: plus il y a de volume, plus ça s'échange
+    results = []
+    
+    for rp in realm_prices_with_data:
+        price = rp["avg_price"] or rp["min_price"]
+        volume = rp["total_quantity"]
+        pop_type = rp.get("population") or "UNKNOWN"
+        
+        # Normalisation 0-1
+        price_norm = (price - min_price) / (max_price - min_price) if max_price != min_price else 0.5
+        volume_norm = (volume - min_volume) / (max_volume - min_volume) if max_volume != min_volume else 0.5
+        pop_score = population_scores.get(pop_type, 0.5)
+        
+        # Score pondéré
+        score = (price_norm * 0.5) + (volume_norm * 0.4) + (pop_score * 0.1)
+        
+        results.append({
+            "Serveur": rp["realm_name"],
+            "Population": population_labels.get(pop_type, pop_type),
+            "Prix Moyen": format_gold(int(price)),
+            "Volume": volume,
+            "Score": score,
+            "Score %": f"{score*100:.0f}%"
+        })
+    
+    # Trier par score décroissant
+    results.sort(key=lambda x: x["Score"], reverse=True)
+    
+    # Ajouter le rang
+    for i, r in enumerate(results):
+        r["Rang"] = f"#{i+1}"
+    
+    df = pd.DataFrame(results)
+    
+    st.markdown("### 🏆 Classement des Meilleurs Serveurs pour Vendre")
+    st.caption("Score basé sur: Prix moyen (50%) + Volume échangé (40%) + Population (10%)")
+    
+    # Top 3 en métriques
+    if len(results) >= 3:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("🥇 1er", results[0]["Serveur"], results[0]["Score %"])
+        with col2:
+            st.metric("🥈 2ème", results[1]["Serveur"], results[1]["Score %"])
+        with col3:
+            st.metric("🥉 3ème", results[2]["Serveur"], results[2]["Score %"])
+        
+        st.markdown("---")
+    
+    # Tableau complet
+    st.dataframe(
+        df[["Rang", "Serveur", "Population", "Prix Moyen", "Volume", "Score %"]],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Rang": st.column_config.TextColumn("Rang", width="small"),
+            "Serveur": st.column_config.TextColumn("Serveur", width="medium"),
+            "Population": st.column_config.TextColumn("Pop.", width="small"),
+            "Volume": st.column_config.NumberColumn("Volume", width="small"),
+            "Score %": st.column_config.TextColumn("Score", width="small"),
+        }
     )
-    fig2.update_layout(height=300)
-    st.plotly_chart(fig2, use_container_width=True)
 
 
 def render_statistics(item_id: int, realm_id: int):
@@ -767,6 +1166,9 @@ def main():
         "<p style='text-align: center; color: #888;'>Suivez les prix des items de housing World of Warcraft</p>",
         unsafe_allow_html=True
     )
+    
+    # Vérification et Scan au démarrage
+    check_startup_scan()
     
     # Vérifier les credentials
     try:

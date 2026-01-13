@@ -46,6 +46,7 @@ class DataManager:
             CREATE TABLE IF NOT EXISTS realms (
                 realm_id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
+                population TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -81,18 +82,25 @@ class DataManager:
             )
         """)
         
+        # Migration: ajouter colonne population si elle n'existe pas (pour bases existantes)
+        try:
+            cursor.execute("ALTER TABLE realms ADD COLUMN population TEXT")
+        except sqlite3.OperationalError:
+            # La colonne existe déjà, ignorer l'erreur
+            pass
+        
         conn.commit()
         conn.close()
     
-    def save_realm(self, realm_id: int, name: str):
+    def save_realm(self, realm_id: int, name: str, population: str = None):
         """Sauvegarde ou met à jour un serveur"""
         conn = self._get_connection()
         cursor = conn.cursor()
         
         cursor.execute("""
-            INSERT OR REPLACE INTO realms (realm_id, name, updated_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-        """, (realm_id, name))
+            INSERT OR REPLACE INTO realms (realm_id, name, population, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        """, (realm_id, name, population))
         
         conn.commit()
         conn.close()
@@ -314,6 +322,7 @@ class DataManager:
             SELECT 
                 r.realm_id,
                 r.name as realm_name,
+                r.population,
                 ph.min_price,
                 ph.avg_price,
                 ph.total_quantity,
@@ -445,6 +454,23 @@ class DataManager:
         
         conn.commit()
         conn.close()
+
+    def get_last_price_update(self) -> Optional[datetime]:
+        """Retourne la date de la dernière mise à jour de prix enregistrée"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT MAX(recorded_at) as last_update FROM price_history")
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row and row["last_update"]:
+            try:
+                return datetime.fromisoformat(str(row["last_update"]).replace("Z", "+00:00"))
+            except ValueError:
+                # Tenter un parsing plus permissif si needed ou assumer format standard
+                return pd.to_datetime(row["last_update"]).to_pydatetime()
+        return None
 
 
 # Instance singleton
