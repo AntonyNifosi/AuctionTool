@@ -1011,13 +1011,13 @@ def render_best_servers_to_sell(item_id: int):
         st.caption("Le classement nécessite des données de prix et volume sur plusieurs serveurs.")
         return
     
-    # Extraire les valeurs pour normalisation
-    prices = [rp["avg_price"] or rp["min_price"] for rp in realm_prices_with_data]
+    # Extraire les valeurs pour normalisation (utiliser min_price)
+    prices = [rp["min_price"] for rp in realm_prices_with_data]
     volumes = [rp["total_quantity"] for rp in realm_prices_with_data]
     
     max_price = max(prices) if prices else 1
     max_volume = max(volumes) if volumes else 1
-    min_price = min(prices) if prices else 0
+    min_price_val = min(prices) if prices else 0
     min_volume = min(volumes) if volumes else 0
     
     # Traduction population
@@ -1046,12 +1046,12 @@ def render_best_servers_to_sell(item_id: int):
     results = []
     
     for rp in realm_prices_with_data:
-        price = rp["avg_price"] or rp["min_price"]
+        price = rp["min_price"]  # Utiliser le prix minimum
         volume = rp["total_quantity"]
         pop_type = rp.get("population") or "UNKNOWN"
         
         # Normalisation 0-1
-        price_norm = (price - min_price) / (max_price - min_price) if max_price != min_price else 0.5
+        price_norm = (price - min_price_val) / (max_price - min_price_val) if max_price != min_price_val else 0.5
         volume_norm = (volume - min_volume) / (max_volume - min_volume) if max_volume != min_volume else 0.5
         pop_score = population_scores.get(pop_type, 0.5)
         
@@ -1061,7 +1061,7 @@ def render_best_servers_to_sell(item_id: int):
         results.append({
             "Serveur": rp["realm_name"],
             "Population": population_labels.get(pop_type, pop_type),
-            "Prix Moyen": format_gold(int(price)),
+            "Prix Min": format_gold(int(price)),
             "Volume": volume,
             "Score": score,
             "Score %": f"{score*100:.0f}%"
@@ -1077,7 +1077,7 @@ def render_best_servers_to_sell(item_id: int):
     df = pd.DataFrame(results)
     
     st.markdown("### 🏆 Classement des Meilleurs Serveurs pour Vendre")
-    st.caption("Score basé sur: Prix moyen (50%) + Volume échangé (40%) + Population (10%)")
+    st.caption("Score basé sur: Prix minimum (50%) + Volume échangé (40%) + Population (10%)")
     
     # Top 3 en métriques
     if len(results) >= 3:
@@ -1093,13 +1093,14 @@ def render_best_servers_to_sell(item_id: int):
     
     # Tableau complet
     st.dataframe(
-        df[["Rang", "Serveur", "Population", "Prix Moyen", "Volume", "Score %"]],
+        df[["Rang", "Serveur", "Population", "Prix Min", "Volume", "Score %"]],
         use_container_width=True,
         hide_index=True,
         column_config={
             "Rang": st.column_config.TextColumn("Rang", width="small"),
             "Serveur": st.column_config.TextColumn("Serveur", width="medium"),
             "Population": st.column_config.TextColumn("Pop.", width="small"),
+            "Prix Min": st.column_config.TextColumn("Prix Min", width="small"),
             "Volume": st.column_config.NumberColumn("Volume", width="small"),
             "Score %": st.column_config.TextColumn("Score", width="small"),
         }
