@@ -143,6 +143,13 @@ class BlizzardAPI:
                 realms_data = data.get("realms", [])
                 realm_names = [r.get("name", {}).get(DEFAULT_LOCALE, "") for r in realms_data]
                 
+                # Extraire la locale (ex: "fr_FR", "en_GB", "ru_RU", etc.)
+                # On prend la locale du premier realm du groupe
+                region_locale = "en_GB" # Valeur par défaut
+                if realms_data:
+                    first_realm = realms_data[0]
+                    region_locale = first_realm.get("locale", "en_GB")
+
                 # Filtrer les noms vides
                 realm_names = [n for n in realm_names if n]
                 
@@ -151,6 +158,7 @@ class BlizzardAPI:
                         "id": realm_id,
                         "name": " / ".join(realm_names),
                         "population": population_type,
+                        "region": region_locale,
                         "realms": realms_data
                     })
             
@@ -190,6 +198,18 @@ class BlizzardAPI:
         """
         data = self._make_request(
             f"/data/wow/connected-realm/{connected_realm_id}/auctions",
+            DYNAMIC_NAMESPACE
+        )
+        return data.get("auctions", [])
+    
+    def get_commodities(self) -> List[Dict]:
+        """
+        Récupère les prix des commodities (matériaux stackables) 
+        au niveau régional (pas par serveur).
+        Les commodities incluent: herbes, minerais, tissus, matériaux d'enchantement, etc.
+        """
+        data = self._make_request(
+            "/data/wow/auctions/commodities",
             DYNAMIC_NAMESPACE
         )
         return data.get("auctions", [])
@@ -282,6 +302,44 @@ class BlizzardAPI:
                 housing_auctions.append(auction)
         
         return housing_auctions
+
+
+    def get_profession_index(self) -> List[Dict]:
+        """
+        Récupère la liste de tous les métiers (professions)
+        """
+        data = self._make_request("/data/wow/profession/index", STATIC_NAMESPACE)
+        return data.get("professions", [])
+    
+    def get_profession(self, profession_id: int) -> Dict:
+        """
+        Récupère les détails d'un métier, incluant les skill tiers
+        """
+        return self._make_request(f"/data/wow/profession/{profession_id}", STATIC_NAMESPACE)
+    
+    def get_profession_skill_tier(self, profession_id: int, skill_tier_id: int) -> Dict:
+        """
+        Récupère les catégories et recettes d'un skill tier
+        """
+        return self._make_request(
+            f"/data/wow/profession/{profession_id}/skill-tier/{skill_tier_id}", 
+            STATIC_NAMESPACE
+        )
+    
+    def get_recipe(self, recipe_id: int) -> Dict:
+        """
+        Récupère les détails d'une recette (item crafté + composants)
+        """
+        return self._make_request(f"/data/wow/recipe/{recipe_id}", STATIC_NAMESPACE)
+    
+    def get_recipe_media(self, recipe_id: int) -> Dict:
+        """
+        Récupère les médias (icône) d'une recette
+        """
+        try:
+            return self._make_request(f"/data/wow/media/recipe/{recipe_id}", STATIC_NAMESPACE)
+        except BlizzardAPIError:
+            return {}
 
 
 # Instance singleton pour faciliter l'utilisation

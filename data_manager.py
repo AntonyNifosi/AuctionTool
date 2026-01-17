@@ -28,6 +28,10 @@ class DataManager:
     def _init_database(self):
         """Initialise les tables de la base de données"""
         conn = self._get_connection()
+        
+        # Activer le mode WAL pour une meilleure performance et concurrence
+        conn.execute("PRAGMA journal_mode=WAL;")
+        
         cursor = conn.cursor()
         
         # Table pour stocker les informations des items de housing
@@ -86,21 +90,61 @@ class DataManager:
         try:
             cursor.execute("ALTER TABLE realms ADD COLUMN population TEXT")
         except sqlite3.OperationalError:
-            # La colonne existe déjà, ignorer l'erreur
             pass
+            
+        # Migration: ajouter colonne region si elle n'existe pas
+        try:
+            cursor.execute("ALTER TABLE realms ADD COLUMN region TEXT")
+        except sqlite3.OperationalError:
+            pass
+        
+        # Table pour stocker les recettes (lien item crafté -> métier)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS recipes (
+                recipe_id INTEGER PRIMARY KEY,
+                crafted_item_id INTEGER NOT NULL,
+                profession_id INTEGER,
+                profession_name TEXT,
+                recipe_name TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (crafted_item_id) REFERENCES housing_items(item_id)
+            )
+        """)
+        
+        # Table pour stocker les composants de recette
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS recipe_reagents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                recipe_id INTEGER NOT NULL,
+                reagent_item_id INTEGER NOT NULL,
+                reagent_name TEXT,
+                quantity INTEGER NOT NULL,
+                FOREIGN KEY (recipe_id) REFERENCES recipes(recipe_id)
+            )
+        """)
+        
+        # Index pour accélérer les lookups
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_recipes_crafted_item 
+            ON recipes(crafted_item_id)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_reagents_recipe 
+            ON recipe_reagents(recipe_id)
+        """)
         
         conn.commit()
         conn.close()
     
-    def save_realm(self, realm_id: int, name: str, population: str = None):
+    def save_realm(self, realm_id: int, name: str, population: str = None, region: str = None):
         """Sauvegarde ou met à jour un serveur"""
         conn = self._get_connection()
         cursor = conn.cursor()
         
         cursor.execute("""
-            INSERT OR REPLACE INTO realms (realm_id, name, population, updated_at)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        """, (realm_id, name, population))
+            INSERT OR REPLACE INTO realms (realm_id, name, population, region, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (realm_id, name, population, region))
         
         conn.commit()
         conn.close()
@@ -143,6 +187,36 @@ class DataManager:
         conn.close()
         
         return [dict(row) for row in rows]
+    
+    def get_items_without_icons(self, limit: int = 50) -> List[Dict]:
+        """Récupère les items sans icône (pour fetch en background)"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT item_id, name 
+            FROM housing_items 
+            WHERE icon_url IS NULL OR icon_url = ''
+            LIMIT ?
+        """, (limit,))
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return [dict(row) for row in rows]
+    
+    def update_icon_url(self, item_id: int, icon_url: str):
+        """Met à jour l'URL de l'icône d'un item"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE housing_items 
+            SET icon_url = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE item_id = ?
+        """, (icon_url, item_id))
+        
+        conn.commit()
+        conn.close()
     
     def clear_housing_items(self):
         """Vide la table des items de housing"""
@@ -323,6 +397,7 @@ class DataManager:
                 r.realm_id,
                 r.name as realm_name,
                 r.population,
+                r.region,
                 ph.min_price,
                 ph.avg_price,
                 ph.total_quantity,
@@ -354,6 +429,7 @@ class DataManager:
         Récupère un résumé de tous les items de housing avec leurs métriques
         pour un serveur donné.
         Version optimisée : utilise une seule requête SQL au lieu de boucler.
+        Inclut les informations de métier et calcule le coût de craft.
         """
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -395,17 +471,23 @@ class DataManager:
                 lp.auction_count,
                 lp.recorded_at,
                 hs.hist_avg_price,
-                wsv.start_quantity
+                wsv.start_quantity,
+                r.recipe_id,
+                r.profession_name
             FROM housing_items hi
             LEFT JOIN latest_prices lp ON hi.item_id = lp.item_id AND lp.rn = 1
             LEFT JOIN historical_stats hs ON hi.item_id = hs.item_id
             LEFT JOIN week_start_volume wsv ON hi.item_id = wsv.item_id AND wsv.rn = 1
+            LEFT JOIN recipes r ON hi.item_id = r.crafted_item_id
             ORDER BY hi.name
         """
         
         cursor.execute(query, (realm_id, realm_id, realm_id))
         rows = cursor.fetchall()
         conn.close()
+        
+        # Pré-calculer tous les craft costs en une seule passe
+        craft_costs = self._batch_calculate_craft_costs(realm_id)
         
         items = []
         for row in rows:
@@ -420,7 +502,9 @@ class DataManager:
                 "auction_count": row["auction_count"],
                 "recorded_at": row["recorded_at"],
                 "trend": None,
-                "volume_change": None
+                "volume_change": None,
+                "profession_name": row["profession_name"],
+                "craft_cost": craft_costs.get(row["item_id"]),
             }
             
             # Calcul Trend (en Python car plus simple pour les arrondis/nulls)
@@ -471,6 +555,249 @@ class DataManager:
                 # Tenter un parsing plus permissif si needed ou assumer format standard
                 return pd.to_datetime(row["last_update"]).to_pydatetime()
         return None
+
+    def get_best_servers_data(self, item_id: int, days: int = 7) -> List[Dict]:
+        """
+        Récupère les données pour le classement des meilleurs serveurs.
+        Calcule la différence de volume (T - T-days).
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # Date de référence pour l'historique
+        start_date = datetime.now() - timedelta(days=days)
+        
+        query = """
+            WITH Latest AS (
+                SELECT 
+                    realm_id, min_price, total_quantity,
+                    ROW_NUMBER() OVER (PARTITION BY realm_id ORDER BY recorded_at DESC) as rn
+                FROM price_history 
+                WHERE item_id = ?
+            ),
+            Oldest AS (
+                SELECT 
+                    realm_id, total_quantity,
+                    ROW_NUMBER() OVER (PARTITION BY realm_id ORDER BY recorded_at ASC) as rn
+                FROM price_history 
+                WHERE item_id = ? AND recorded_at >= ?
+            )
+            SELECT 
+                r.name as realm_name,
+                r.population,
+                r.region,
+                l.min_price,
+                l.total_quantity as current_volume,
+                o.total_quantity as old_volume
+            FROM realms r
+            JOIN Latest l ON r.realm_id = l.realm_id AND l.rn = 1
+            LEFT JOIN Oldest o ON r.realm_id = o.realm_id AND o.rn = 1
+        """
+        
+        cursor.execute(query, (item_id, item_id, start_date))
+        rows = cursor.fetchall()
+        conn.close()
+        
+        results = []
+        for row in rows:
+            r = dict(row)
+            current = r["current_volume"] or 0
+            # Si pas d'historique (old_volume is None), on assume pas de changement (old = current)
+            old = r["old_volume"] if r["old_volume"] is not None else current
+            
+            # Calcule du volume échangé (inversé: diminution = vente)
+            # Ex: Lundi 20 items, Dimanche 15 items -> 5 vendus (+5)
+            # Ex: Lundi 20 items, Dimanche 25 items -> 5 ajoutés (-5)
+            r["volume_exchanged"] = old - current
+            results.append(r)
+            
+        return results
+
+    # ========== RECIPE METHODS ==========
+    
+    def has_recipes_synced(self) -> bool:
+        """Vérifie si des recettes ont déjà été synchronisées"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM recipes")
+        row = cursor.fetchone()
+        conn.close()
+        return row["count"] > 0
+    
+    def save_recipe(self, recipe_id: int, crafted_item_id: int, 
+                    profession_id: int, profession_name: str, recipe_name: str):
+        """Sauvegarde ou met à jour une recette"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO recipes 
+            (recipe_id, crafted_item_id, profession_id, profession_name, recipe_name, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (recipe_id, crafted_item_id, profession_id, profession_name, recipe_name))
+        
+        conn.commit()
+        conn.close()
+    
+    def save_recipe_reagents(self, recipe_id: int, reagents: List[Dict]):
+        """
+        Sauvegarde les composants d'une recette.
+        reagents: [{"item_id": 123, "name": "Material", "quantity": 5}, ...]
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # Supprimer les anciens réactifs
+        cursor.execute("DELETE FROM recipe_reagents WHERE recipe_id = ?", (recipe_id,))
+        
+        # Insérer les nouveaux
+        for reagent in reagents:
+            cursor.execute("""
+                INSERT INTO recipe_reagents (recipe_id, reagent_item_id, reagent_name, quantity)
+                VALUES (?, ?, ?, ?)
+            """, (recipe_id, reagent["item_id"], reagent.get("name"), reagent["quantity"]))
+        
+        conn.commit()
+        conn.close()
+    
+    def get_recipe_for_item(self, item_id: int) -> Optional[Dict]:
+        """Récupère la recette associée à un item crafté"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT recipe_id, crafted_item_id, profession_id, profession_name, recipe_name
+            FROM recipes
+            WHERE crafted_item_id = ?
+        """, (item_id,))
+        
+        row = cursor.fetchone()
+        conn.close()
+        
+        return dict(row) if row else None
+    
+    def get_recipe_reagents(self, recipe_id: int) -> List[Dict]:
+        """Récupère les composants d'une recette"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT reagent_item_id, reagent_name, quantity
+            FROM recipe_reagents
+            WHERE recipe_id = ?
+        """, (recipe_id,))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return [dict(row) for row in rows]
+    
+    def get_all_reagent_ids(self) -> set:
+        """Récupère tous les IDs uniques de réactifs pour le tracking des prix"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT DISTINCT reagent_item_id FROM recipe_reagents")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return {row[0] for row in rows if row[0]}
+    
+    def _batch_calculate_craft_costs(self, realm_id: int) -> Dict[int, int]:
+        """
+        Calcule tous les craft costs en une seule passe pour la performance.
+        Retourne un dict {item_id: craft_cost}
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # 1. Récupérer toutes les recettes et leurs réactifs en une requête
+        cursor.execute("""
+            SELECT r.crafted_item_id, rr.reagent_item_id, rr.quantity
+            FROM recipes r
+            JOIN recipe_reagents rr ON r.recipe_id = rr.recipe_id
+        """)
+        recipe_reagents = cursor.fetchall()
+        
+        # 2. Récupérer tous les prix de réactifs (local + régional) en une requête
+        cursor.execute("""
+            SELECT item_id, realm_id, min_price
+            FROM price_history
+            WHERE realm_id IN (?, 0)
+            AND (item_id, realm_id, recorded_at) IN (
+                SELECT item_id, realm_id, MAX(recorded_at)
+                FROM price_history
+                WHERE realm_id IN (?, 0)
+                GROUP BY item_id, realm_id
+            )
+        """, (realm_id, realm_id))
+        price_rows = cursor.fetchall()
+        conn.close()
+        
+        # 3. Construire un dict de prix: {item_id: min_price} (préfère local à régional)
+        prices = {}
+        for item_id, r_id, min_price in price_rows:
+            if min_price:
+                if r_id == realm_id:
+                    prices[item_id] = min_price  # Prix local prioritaire
+                elif item_id not in prices:
+                    prices[item_id] = min_price  # Prix régional si pas de local
+        
+        # 4. Grouper les réactifs par crafted_item_id
+        import collections
+        item_reagents = collections.defaultdict(list)
+        for crafted_id, reagent_id, qty in recipe_reagents:
+            item_reagents[crafted_id].append((reagent_id, qty))
+        
+        # 5. Calculer les craft costs
+        craft_costs = {}
+        for item_id, reagents in item_reagents.items():
+            total = 0
+            for reagent_id, qty in reagents:
+                if reagent_id in prices:
+                    total += prices[reagent_id] * qty
+            if total > 0:
+                craft_costs[item_id] = total
+        
+        return craft_costs
+    
+    def calculate_craft_cost(self, item_id: int, realm_id: int) -> Optional[int]:
+        """
+        Calcule le coût de craft d'un item basé sur les prix AH des composants.
+        Utilise les prix régionaux (commodities, realm_id=0) si pas de prix local.
+        
+        Returns:
+            Le coût total en copper, ou None si pas de recette
+        """
+        # 1. Récupérer la recette de l'item
+        recipe = self.get_recipe_for_item(item_id)
+        if not recipe:
+            return None
+        
+        # 2. Récupérer les composants
+        reagents = self.get_recipe_reagents(recipe["recipe_id"])
+        if not reagents:
+            return None
+        
+        # 3. Calculer le coût total (somme des composants disponibles)
+        total_cost = 0
+        
+        for reagent in reagents:
+            reagent_item_id = reagent["reagent_item_id"]
+            quantity = reagent["quantity"]
+            
+            # Essayer d'abord le prix local du serveur
+            price_data = self.get_current_price(reagent_item_id, realm_id)
+            
+            # Si pas de prix local, essayer le prix régional (commodities)
+            if not price_data or not price_data.get("min_price"):
+                price_data = self.get_current_price(reagent_item_id, 0)  # realm_id=0 = regional
+            
+            if price_data and price_data.get("min_price"):
+                total_cost += price_data["min_price"] * quantity
+            # Sinon on ignore ce composant (ex: bois qui n'est pas achetable)
+        
+        return total_cost if total_cost > 0 else None
 
 
 # Instance singleton

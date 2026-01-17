@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 
 from blizzard_api import get_api, BlizzardAPIError
 from data_manager import get_data_manager
+from update_manager import UpdateManager
 
 # Configuration de la page
 st.set_page_config(
@@ -59,6 +60,40 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+
+def format_time_diff(dt_str) -> str:
+    """Formate la différence de temps (ex: 'Il y a 5 min')"""
+    if not dt_str:
+        return "-"
+    
+    try:
+        if isinstance(dt_str, str):
+            # Tenter de parser ISO
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(str(dt_str).replace("Z", "+00:00"))
+        else:
+            dt = dt_str
+            
+        if dt.tzinfo is None:
+            from datetime import timezone
+            dt = dt.replace(tzinfo=timezone.utc)
+            
+        now = datetime.now(timezone.utc)
+        diff = now - dt
+        seconds = diff.total_seconds()
+        
+        if seconds < 60:
+            return "< 1 min"
+        elif seconds < 3600:
+            return f"{int(seconds // 60)} min"
+        elif seconds < 86400:
+            return f"{int(seconds // 3600)} h"
+        else:
+            return f"{int(seconds // 86400)} j"
+            
+    except Exception:
+        return ""
 
 
 def format_gold(copper_value: Optional[int]) -> str:
@@ -148,6 +183,58 @@ def get_housing_items_from_db():
     dm = get_data_manager()
     return dm.get_housing_items()
 
+
+def fetch_missing_icons(batch_size: int = 30):
+    """
+    Récupère les icônes manquantes pour les items et les cache en DB.
+    Appelé en arrière-plan à chaque chargement de page.
+    """
+    dm = get_data_manager()
+    api = get_api()
+    
+    # Récupérer les items sans icône
+    items_without_icons = dm.get_items_without_icons(limit=batch_size)
+    
+    if not items_without_icons:
+        return 0  # Tous les items ont déjà une icône
+    
+    fetched_count = 0
+    
+    for item in items_without_icons:
+        item_id = item["item_id"]
+        try:
+            # Appeler l'API Blizzard pour récupérer les médias
+            media_data = api.get_item_media(item_id)
+            
+            # Extraire l'URL de l'icône
+            assets = media_data.get("assets", [])
+            icon_url = None
+            
+            for asset in assets:
+                if asset.get("key") == "icon":
+                    icon_url = asset.get("value")
+                    break
+            
+            if icon_url:
+                # Sauvegarder en base
+                dm.update_icon_url(item_id, icon_url)
+                fetched_count += 1
+            else:
+                # Marquer comme "pas d'icône" pour ne pas re-essayer
+                dm.update_icon_url(item_id, "NONE")
+                
+        except Exception as e:
+            # En cas d'erreur, on continue avec les autres items
+            print(f"Error fetching icon for item {item_id}: {e}")
+            continue
+    
+    # Vider le cache pour que les nouvelles icônes apparaissent
+    if fetched_count > 0:
+        get_housing_items_from_db.clear()
+    
+    return fetched_count
+
+
 def load_housing_items():
     """
     Charge les items de housing depuis l'API Blizzard
@@ -230,105 +317,31 @@ def load_housing_items():
         return dm.get_housing_items()
 
 
-def perform_global_scan():
-    """Effectue un scan complet de tous les serveurs"""
-    api = get_api()
-    dm = get_data_manager()
-    
-    st_status = st.status("🔄 Mise à jour globale des données (cela peut prendre 1 à 2 minutes)...", expanded=True)
-    
-    try:
-        # 1. Charger les items de housing pour avoir la liste
-        st_status.write("📚 Chargement du catalogue d'items...")
-        housing_items = load_housing_items()
-        housing_item_ids = {item["item_id"] for item in housing_items}
-        
-        # 2. Charger la liste des serveurs (Optimisé)
-        st_status.write("🌍 Récupération de la liste des serveurs...")
-        realms = api.get_all_realms_with_names()
-        
-        # 3. Boucle sur les serveurs
-        total_realms = len(realms)
-        progress_bar = st_status.progress(0, text=f"Scan des serveurs (0/{total_realms})")
-        
-        scanned_count = 0
-        
-        for i, realm in enumerate(realms):
-            realm_name = realm["name"]
-            realm_id = realm["id"]
-            realm_population = realm.get("population", "UNKNOWN")
-            
-            # Mise à jour progress bar
-            progress_bar.progress((i + 1) / total_realms, text=f"Scan: {realm_name} ({i+1}/{total_realms})")
-            
-            try:
-                # Sauvegarder le serveur si nouveau (avec population)
-                dm.save_realm(realm_id, realm_name, realm_population)
-                
-                # Fetch auctions
-                all_auctions = api.get_auctions(realm_id)
-                
-                # Filtrer en mémoire (rapide)
-                # On prépare les données pour insertion batch si possible, 
-                # ou on boucle avec record_price_data (SQLite est rapide en local)
-                
-                # Grouper par item_id
-                item_stats = {}
-                
-                for auction in all_auctions:
-                    item_id = auction.get("item", {}).get("id")
-                    if item_id in housing_item_ids:
-                        if item_id not in item_stats:
-                            item_stats[item_id] = {"prices": [], "qty": 0}
-                        
-                        price = auction.get("buyout") or auction.get("unit_price", 0)
-                        qty = auction.get("quantity", 1)
-                        
-                        if price > 0:
-                            item_stats[item_id]["prices"].append(price)
-                            item_stats[item_id]["qty"] += qty
-                
-                # Enregistrer stats
-                for item_id, stats in item_stats.items():
-                    prices = stats["prices"]
-                    if prices:
-                        min_price = min(prices)
-                        avg_price = sum(prices) / len(prices)
-                        total_qty = stats["qty"]
-                        auction_count = len(prices) # Approx si stack > 1 mais ok
-                        
-                        dm.record_price_data(
-                            item_id=item_id,
-                            realm_id=realm_id,
-                            min_price=min_price,
-                            avg_price=avg_price,
-                            total_quantity=total_qty,
-                            auction_count=auction_count
-                        )
-                
-                scanned_count += 1
-                
-            except Exception as e:
-                # On continue même si un serveur plante
-                print(f"Error scanning {realm_name}: {e}")
-                continue
-                
-        st_status.update(label=f"✅ Mise à jour terminée! ({scanned_count} serveurs scannés)", state="complete", expanded=False)
-        time.sleep(1) # Petit délai pour voir le succès
-        
-    except Exception as e:
-        st_status.update(label=f"❌ Erreur durant la mise à jour: {str(e)}", state="error")
 
 
-def check_startup_scan():
-    """Vérifie si un scan au démarrage est nécessaire"""
-    dm = get_data_manager()
-    
-    # Vérifier l'âge de la dernière donnée
-    # On peut faire une requête rapide pour avoir le MAX(recorded_at) global
-    # Mais data_manager n'a pas cette méthode publique. On va l'improviser ou l'ajouter.
-    # Pour l'instant, on regarde item_summary du premier serveur chargé si dispo, sinon on force.
-    pass # TODO: Implémenter logique précise avec DB
+
+
+
+
+@st.cache_resource
+def get_update_manager():
+    """Retourne l'instance singleton du gestionnaire de mise à jour"""
+    return UpdateManager()
+
+
+@st.fragment(run_every=3)
+def render_update_progress():
+    """Affiche la progression de la mise à jour (rafraîchi toutes les 3s via fragment)"""
+    mgr = get_update_manager()
+    if mgr.is_running():
+        st.warning(f"🔄 {mgr.status_message}")
+        st.progress(mgr.progress)
+    elif mgr.last_update_time:
+         from datetime import datetime
+         now = datetime.now()
+         diff = now - mgr.last_update_time
+         if diff.total_seconds() < 60:
+             st.success("✅ Données à jour !")
 
 
 def fetch_auction_data(realm_id: int, housing_items: List[Dict]):
@@ -425,11 +438,13 @@ def render_sidebar():
     
     # Bouton pour rafraîchir les données
     if st.sidebar.button("🔄 Rafraîchir les données", use_container_width=True):
-        if st.session_state.selected_realm_id:
-            housing_items = load_housing_items()
-            fetch_auction_data(st.session_state.selected_realm_id, housing_items)
-            st.success("Données mises à jour!")
-            st.rerun()
+        mgr = get_update_manager()
+        mgr.start_background_update(force=True)
+        st.toast("Mise à jour lancée en arrière-plan !", icon="🚀")
+    
+    # Indicateur de mise à jour en cours (géré par fragment auto-rafraîchi)
+    with st.sidebar:
+        render_update_progress()
     
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📊 Informations")
@@ -498,7 +513,74 @@ def check_startup_scan():
             st.info(f"🕒 Dernière mise à jour il y a {int(age.total_seconds()//60)} minutes.")
 
     if should_scan:
-        perform_global_scan()
+        mgr = get_update_manager()
+        if not mgr.is_running():
+            mgr.start_background_update()
+            st.toast("🔄 Mise à jour des données lancée en arrière-plan...", icon="⏳")
+    
+    # Les icônes sont téléchargées en arrière-plan via Update Manager ou progressivement
+    # check_and_download_all_icons() - Supprimé pour éviter blocage
+
+
+def check_and_download_all_icons():
+    """Télécharge toutes les icônes manquantes au démarrage"""
+    dm = get_data_manager()
+    
+    # Vérifier combien d'icônes manquent
+    items_without_icons = dm.get_items_without_icons(limit=9999)
+    
+    if not items_without_icons:
+        return  # Toutes les icônes sont déjà en cache
+    
+    total = len(items_without_icons)
+    
+    # Afficher une barre de progression
+    st_status = st.status(f"🖼️ Téléchargement des icônes ({total} manquantes)...", expanded=True)
+    
+    api = get_api()
+    fetched = 0
+    errors = 0
+    
+    progress_bar = st_status.progress(0, text=f"Icônes: 0/{total}")
+    
+    for i, item in enumerate(items_without_icons):
+        item_id = item["item_id"]
+        
+        try:
+            # Appeler l'API Blizzard pour récupérer les médias
+            media_data = api.get_item_media(item_id)
+            
+            # Extraire l'URL de l'icône
+            assets = media_data.get("assets", [])
+            icon_url = None
+            
+            for asset in assets:
+                if asset.get("key") == "icon":
+                    icon_url = asset.get("value")
+                    break
+            
+            if icon_url:
+                dm.update_icon_url(item_id, icon_url)
+                fetched += 1
+            else:
+                dm.update_icon_url(item_id, "NONE")
+                
+        except Exception:
+            dm.update_icon_url(item_id, "NONE")
+            errors += 1
+        
+        # Mise à jour progress bar tous les 10 items
+        if (i + 1) % 10 == 0 or i == total - 1:
+            progress_bar.progress((i + 1) / total, text=f"Icônes: {i+1}/{total}")
+    
+    # Vider le cache pour afficher les nouvelles icônes
+    get_housing_items_from_db.clear()
+    
+    st_status.update(
+        label=f"✅ {fetched} icônes téléchargées ({errors} erreurs)", 
+        state="complete", 
+        expanded=False
+    )
 
 
 
@@ -631,10 +713,38 @@ def render_item_list(realm_id: int):
             return f"+{int(val)}" if val > 0 else str(int(val))
             
         df_display["Volume Δ"] = df_display["volume_change"].apply(fmt_vol)
+        
+        # Formatage Date de MAJ
+        df_display["Maj"] = df_display["recorded_at"].apply(format_time_diff)
+        
+        # Métier (profession)
+        df_display["Métier"] = df_display["profession_name"].fillna("-")
+        
+        # Coût Craft avec indicateur de profit
+        def format_craft_cost(row):
+            craft_cost = row.get("craft_cost")
+            min_price = row.get("min_price")
+            
+            if pd.isna(craft_cost) or craft_cost is None:
+                return "-"
+            
+            cost_str = format_gold(int(craft_cost))
+            
+            # Indicateur de profit si on a les deux prix
+            if min_price and craft_cost:
+                if min_price > craft_cost * 1.1:  # 10%+ profit
+                    return f"🟢 {cost_str}"
+                elif min_price < craft_cost * 0.9:  # On perd 10%+
+                    return f"🔴 {cost_str}"
+                else:
+                    return f"⚪ {cost_str}"
+            return cost_str
+        
+        df_display["Coût Craft"] = df_display.apply(format_craft_cost, axis=1)
 
-        # Sélection des colonnes finales (Ajout Icone)
-        final_cols = ["Item ID", "Icone", "Nom", "Catégorie", "Prix Min", "Prix Moyen", 
-                      "Quantité", "Enchères", "Tendance", "Volume Δ"]
+        # Sélection des colonnes finales (Ajout Métier et Coût Craft)
+        final_cols = ["Icone", "Item ID", "Nom", "Catégorie", "Métier", "Prix Min", "Coût Craft",
+                      "Quantité", "Enchères", "Tendance", "Volume Δ", "Maj"]
         
         df_final = df_display[final_cols]
         
@@ -650,8 +760,11 @@ def render_item_list(realm_id: int):
                 "Icone": st.column_config.ImageColumn("Icon", width="small"),
                 "Nom": st.column_config.TextColumn("Nom", width="medium"),
                 "Catégorie": st.column_config.TextColumn("Catégorie", width="small"),
+                "Métier": st.column_config.TextColumn("Métier", width="small", help="Profession requise pour crafter cet item"),
+                "Coût Craft": st.column_config.TextColumn("Coût Craft", width="small", help="🟢 = Profit, 🔴 = Perte, ⚪ = Neutre"),
                 "Quantité": st.column_config.TextColumn("Qté", width="small"),
                 "Enchères": st.column_config.TextColumn("Ench.", width="small"),
+                "Maj": st.column_config.TextColumn("Maj", width="small", help="Temps écoulé depuis la dernière mise à jour"),
             }
         )
         
@@ -731,12 +844,13 @@ def render_item_details(item: Dict, current_realm_id: int):
     st.markdown("---")
     
     # Onglets pour les différentes vues
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📊 Prix par Serveur", 
         "📈 Historique Prix", 
         "📦 Volume",
         "🏆 Meilleurs Serveurs",
-        "📉 Statistiques"
+        "📉 Statistiques",
+        "🔨 Craft"
     ])
     
     with tab1:
@@ -753,6 +867,175 @@ def render_item_details(item: Dict, current_realm_id: int):
     
     with tab5:
         render_statistics(item["item_id"], current_realm_id)
+    
+    with tab6:
+        render_craft_info(item["item_id"], current_realm_id)
+
+
+def render_craft_info(item_id: int, realm_id: int):
+    """Affiche les informations de craft d'un item"""
+    dm = get_data_manager()
+    
+    # Récupérer la recette de l'item
+    recipe = dm.get_recipe_for_item(item_id)
+    
+    if not recipe:
+        st.info("🔨 Cet item n'est pas craftable ou la recette n'a pas encore été synchronisée.")
+        st.caption("Les recettes sont synchronisées automatiquement lors du premier scan.")
+        return
+    
+    # Afficher les infos de la recette
+    st.markdown(f"### 🔨 {recipe['recipe_name']}")
+    st.markdown(f"**Métier :** {recipe['profession_name']}")
+    
+    st.markdown("---")
+    
+    # Récupérer les composants
+    reagents = dm.get_recipe_reagents(recipe["recipe_id"])
+    
+    if not reagents:
+        st.warning("Aucun composant trouvé pour cette recette.")
+        return
+    
+    st.markdown("#### 📦 Composants nécessaires")
+    
+    # Préparer les données pour l'affichage
+    components_data = []
+    total_cost = 0
+    all_prices_available = True
+    
+    for reagent in reagents:
+        reagent_id = reagent["reagent_item_id"]
+        reagent_name = reagent["reagent_name"] or f"Item {reagent_id}"
+        quantity = reagent["quantity"]
+        
+        # Essayer d'abord le prix local du serveur
+        price_data = dm.get_current_price(reagent_id, realm_id)
+        
+        # Si pas de prix local, essayer le prix régional (commodities)
+        if not price_data or not price_data.get("min_price"):
+            price_data = dm.get_current_price(reagent_id, 0)  # realm_id=0 = regional
+        
+        if price_data and price_data.get("min_price"):
+            unit_price = price_data["min_price"]
+            line_total = unit_price * quantity
+            total_cost += line_total
+            
+            components_data.append({
+                "Composant": reagent_name,
+                "Quantité": quantity,
+                "Prix Unitaire": format_gold(unit_price),
+                "Sous-total": format_gold(line_total)
+            })
+        else:
+            all_prices_available = False
+            components_data.append({
+                "Composant": reagent_name,
+                "Quantité": quantity,
+                "Prix Unitaire": "❓ Non dispo",
+                "Sous-total": "-"
+            })
+    
+    # Afficher le tableau des composants
+    if components_data:
+        df_components = pd.DataFrame(components_data)
+        st.dataframe(
+            df_components,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Composant": st.column_config.TextColumn("Composant", width="medium"),
+                "Quantité": st.column_config.NumberColumn("Qté", width="small"),
+                "Prix Unitaire": st.column_config.TextColumn("Prix Unit.", width="small"),
+                "Sous-total": st.column_config.TextColumn("Sous-total", width="small")
+            }
+        )
+    
+    st.markdown("---")
+    
+    # Afficher le coût total et la comparaison
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if total_cost > 0:
+            st.metric("💰 Coût de Craft", format_gold(total_cost))
+        else:
+            st.metric("💰 Coût de Craft", "N/A")
+    
+    with col2:
+        # Récupérer le prix de vente actuel
+        current_price_data = dm.get_current_price(item_id, realm_id)
+        if current_price_data and current_price_data.get("min_price"):
+            ah_price = current_price_data["min_price"]
+            st.metric("🏪 Prix AH Actuel", format_gold(ah_price))
+        else:
+            ah_price = None
+            st.metric("🏪 Prix AH Actuel", "N/A")
+    
+    with col3:
+        if all_prices_available and ah_price and total_cost > 0:
+            profit = ah_price - total_cost
+            profit_percent = ((ah_price / total_cost) - 1) * 100
+            
+            if profit > 0:
+                st.metric(
+                    "📈 Profit Potentiel",
+                    format_gold(profit),
+                    delta=f"+{profit_percent:.1f}%",
+                    delta_color="normal"
+                )
+            else:
+                st.metric(
+                    "📉 Perte Potentielle",
+                    format_gold(abs(profit)),
+                    delta=f"{profit_percent:.1f}%",
+                    delta_color="inverse"
+                )
+        else:
+            st.metric("📊 Profit", "N/A", help="Calcul impossible - données manquantes")
+
+
+# --- Utils ---
+def get_flag_emoji(region_locale: str) -> str:
+    """Retourne un emoji drapeau selon le locale"""
+    if not region_locale:
+        return "🏳️"
+    
+    # Mapping locale -> drapeau (supporte avec et sans underscore)
+    flags = {
+        "fr_FR": "🇫🇷", "frFR": "🇫🇷",
+        "en_GB": "🇬🇧", "enGB": "🇬🇧",
+        "de_DE": "🇩🇪", "deDE": "🇩🇪",
+        "es_ES": "🇪🇸", "esES": "🇪🇸",
+        "it_IT": "🇮🇹", "itIT": "🇮🇹",
+        "ru_RU": "🇷🇺", "ruRU": "🇷🇺",
+        "pt_PT": "🇵🇹", "ptPT": "🇵🇹",
+        "ko_KR": "🇰🇷", "koKR": "🇰🇷",
+        "zh_TW": "🇹🇼", "zhTW": "🇹🇼",
+        "zh_CN": "🇨🇳", "zhCN": "🇨🇳",
+        "en_US": "🇺🇸", "enUS": "🇺🇸",
+    }
+    # Par défaut on affiche "??" si inconnu
+    return flags.get(region_locale, "🏳️")
+
+
+def get_flag_url(region_locale: str) -> str:
+    """Retourne l'URL de l'image du drapeau (flagcdn) selon le locale"""
+    if not region_locale:
+        return "https://flagcdn.com/48x36/un.png" # ONU comme fallback
+    
+    # Nettoyage (fr_FR -> frfr, frFR -> frfr)
+    clean_locale = region_locale.replace("_", "").lower()
+    
+    # Extraction du code pays (généralement les 2 derniers caractères)
+    # ex: frfr -> fr, engb -> gb, enus -> us
+    if len(clean_locale) >= 4:
+        country_code = clean_locale[-2:]
+    else:
+        # Fallback si le format est étrange, on essaie les 2 premiers
+        country_code = clean_locale[:2]
+        
+    return f"https://flagcdn.com/48x36/{country_code}.png"
 
 
 def render_prices_by_realm(item_id: int):
@@ -789,16 +1072,23 @@ def render_prices_by_realm(item_id: int):
     for rp in realm_prices_with_data:
         # Conversion Copper -> Gold pour le graphique
         min_price_gold = rp.get("min_price", 0) / 10000.0
+        avg_price_gold = int(rp["avg_price"]) / 10000.0 if rp.get("avg_price") else None
         
         pop_type = rp.get("population") or "UNKNOWN"
         pop_label = population_labels.get(pop_type, pop_type)
         
+        # Drapeau
+        # Drapeau
+        region = rp.get("region")
+        flag_url = get_flag_url(region)
+        
         df_data.append({
+            "Region": flag_url,
             "Serveur": rp["realm_name"],
             "Population": pop_label,
             "Prix Min (Gold)": min_price_gold,
-            "Prix Min (formaté)": format_gold(rp.get("min_price")),
-            "Prix Moyen": format_gold(int(rp["avg_price"]) if rp.get("avg_price") else None),
+            "Prix Min": min_price_gold,  # Raw numeric for sorting
+            "Prix Moyen": avg_price_gold, # Raw numeric for sorting
             "Quantité": rp.get("total_quantity") or 0,
             "Enchères": rp.get("auction_count") or 0,
         })
@@ -854,19 +1144,18 @@ def render_prices_by_realm(item_id: int):
     # Tableau des prix (triable via clic sur les colonnes)
     st.markdown("#### 📊 Comparaison détaillée (cliquez sur une colonne pour trier)")
     
-    df_display = df[["Serveur", "Population", "Prix Min (formaté)", "Prix Moyen", "Quantité", "Enchères"]].rename(
-        columns={"Prix Min (formaté)": "Prix Min"}
-    )
+    df_display = df[["Region", "Serveur", "Population", "Prix Min", "Prix Moyen", "Quantité", "Enchères"]]
     
     st.dataframe(
         df_display,
         use_container_width=True,
         hide_index=True,
         column_config={
+            "Region": st.column_config.ImageColumn("Pays", width="small"),
             "Serveur": st.column_config.TextColumn("Serveur", width="medium"),
             "Population": st.column_config.TextColumn("Population", width="small"),
-            "Prix Min": st.column_config.TextColumn("Prix Min", width="small"),
-            "Prix Moyen": st.column_config.TextColumn("Prix Moyen", width="small"),
+            "Prix Min": st.column_config.NumberColumn("Prix Min", width="small", format="%.0f g"),
+            "Prix Moyen": st.column_config.NumberColumn("Prix Moyen", width="small", format="%.0f g"),
             "Quantité": st.column_config.NumberColumn("Quantité", width="small"),
             "Enchères": st.column_config.NumberColumn("Enchères", width="small"),
         }
@@ -1001,24 +1290,32 @@ def render_best_servers_to_sell(item_id: int):
     """Affiche le classement des meilleurs serveurs pour vendre cet item"""
     dm = get_data_manager()
     
-    realm_prices = dm.get_all_realms_prices(item_id)
+    # Utiliser la nouvelle méthode qui calcule le volume échangé
+    best_servers_data = dm.get_best_servers_data(item_id, days=7)
     
     # Filtrer les serveurs avec des données
-    realm_prices_with_data = [rp for rp in realm_prices if rp.get("min_price") and rp.get("total_quantity")]
+    # On veut des serveurs où il y a un prix minimum défini
+    servers_with_data = [d for d in best_servers_data if d.get("min_price")]
     
-    if not realm_prices_with_data or len(realm_prices_with_data) < 2:
+    # FILTRE ANTI-RUSSE (demandé par utilisateur)
+    # On exclut les serveurs dont le region is 'ru_RU'
+    servers_with_data = [d for d in servers_with_data if d.get("region") != "ru_RU"]
+    
+    if not servers_with_data or len(servers_with_data) < 2:
         st.info("Pas assez de données pour calculer le classement.")
-        st.caption("Le classement nécessite des données de prix et volume sur plusieurs serveurs.")
+        st.caption("Le classement nécessite des données sur plusieurs serveurs.")
         return
     
-    # Extraire les valeurs pour normalisation (utiliser min_price)
-    prices = [rp["min_price"] for rp in realm_prices_with_data]
-    volumes = [rp["total_quantity"] for rp in realm_prices_with_data]
+    # Extraire les valeurs pour normalisation
+    prices = [d["min_price"] for d in servers_with_data]
+    # On ne garde que les volumes échangés positifs (ventes) pour le max, sinon 1
+    # On permet les volumes négatifs dans la liste pour les pénaliser
+    volumes = [d["volume_exchanged"] for d in servers_with_data]
+    max_volume = max(volumes) if volumes and max(volumes) > 0 else 1
+    min_volume = min(volumes) if volumes else 0
     
     max_price = max(prices) if prices else 1
-    max_volume = max(volumes) if volumes else 1
     min_price_val = min(prices) if prices else 0
-    min_volume = min(volumes) if volumes else 0
     
     # Traduction population
     population_scores = {
@@ -1039,30 +1336,45 @@ def render_best_servers_to_sell(item_id: int):
         "UNKNOWN": "❓ Inconnu"
     }
     
-    # Calculer le score pour chaque serveur
-    # Score = (Prix normalisé * 0.5) + (Volume normalisé * 0.4) + (Population * 0.1)
-    # Prix: plus c'est cher, mieux c'est pour vendre
-    # Volume: plus il y a de volume, plus ça s'échange
     results = []
     
-    for rp in realm_prices_with_data:
-        price = rp["min_price"]  # Utiliser le prix minimum
-        volume = rp["total_quantity"]
-        pop_type = rp.get("population") or "UNKNOWN"
+    for d in servers_with_data:
+        price = d["min_price"]
+        vol_exchanged = d["volume_exchanged"]
+        pop_type = d.get("population") or "UNKNOWN"
+        region = d.get("region")
         
         # Normalisation 0-1
         price_norm = (price - min_price_val) / (max_price - min_price_val) if max_price != min_price_val else 0.5
-        volume_norm = (volume - min_volume) / (max_volume - min_volume) if max_volume != min_volume else 0.5
+        
+        # Normalisation volume: on favorise les ventes positives
+        # Si vol_exchanged est négatif (stock augmente), le score sera bas
+        volume_norm = (vol_exchanged - min_volume) / (max_volume - min_volume) if max_volume != min_volume else 0.5
+        
         pop_score = population_scores.get(pop_type, 0.5)
         
-        # Score pondéré
+        # Score pondéré initial
         score = (price_norm * 0.5) + (volume_norm * 0.4) + (pop_score * 0.1)
         
+        # Pénalité MAJEURE si aucune vente (volume négatif ou nul)
+        # L'utilisateur considère que même si le prix est haut, si ça ne vend pas, c'est un mauvais choix.
+        if vol_exchanged <= 0:
+            score = score * 0.1
+        
+        # Formatage du volume pour l'affichage
+        vol_display = f"{vol_exchanged:+}" if vol_exchanged != 0 else "0"
+        
+        flag = get_flag_emoji(region)
+        flag_url = get_flag_url(region)
+        # server_name_display = f"{flag} {d['realm_name']}" # Séparé pour le tri
+        
         results.append({
-            "Serveur": rp["realm_name"],
+            "RegionEmoji": flag,
+            "Region": flag_url,
+            "Serveur": d["realm_name"],
             "Population": population_labels.get(pop_type, pop_type),
             "Prix Min": format_gold(int(price)),
-            "Volume": volume,
+            "Var. Stock 7j": vol_display,  # Renommé pour précision
             "Score": score,
             "Score %": f"{score*100:.0f}%"
         })
@@ -1077,31 +1389,33 @@ def render_best_servers_to_sell(item_id: int):
     df = pd.DataFrame(results)
     
     st.markdown("### 🏆 Classement des Meilleurs Serveurs pour Vendre")
-    st.caption("Score basé sur: Prix minimum (50%) + Volume échangé (40%) + Population (10%)")
+    st.caption("Score basé sur : Prix min (50%) + **Variation du stock sur 7 jours** (40%) + Population (10%)")
+    st.caption("*Note : Une variation négative (ex: -5) signifie que le stock a baissé, ce qui est bon pour la vente.*")
     
     # Top 3 en métriques
     if len(results) >= 3:
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("🥇 1er", results[0]["Serveur"], results[0]["Score %"])
+            st.metric("🥇 1er", f"{results[0]['RegionEmoji']} {results[0]['Serveur']}", results[0]["Score %"])
         with col2:
-            st.metric("🥈 2ème", results[1]["Serveur"], results[1]["Score %"])
+            st.metric("🥈 2ème", f"{results[1]['RegionEmoji']} {results[1]['Serveur']}", results[1]["Score %"])
         with col3:
-            st.metric("🥉 3ème", results[2]["Serveur"], results[2]["Score %"])
+            st.metric("🥉 3ème", f"{results[2]['RegionEmoji']} {results[2]['Serveur']}", results[2]["Score %"])
         
         st.markdown("---")
     
     # Tableau complet
     st.dataframe(
-        df[["Rang", "Serveur", "Population", "Prix Min", "Volume", "Score %"]],
+        df[["Rang", "Region", "Serveur", "Population", "Prix Min", "Var. Stock 7j", "Score %"]],
         use_container_width=True,
         hide_index=True,
         column_config={
             "Rang": st.column_config.TextColumn("Rang", width="small"),
+            "Region": st.column_config.ImageColumn("Pays", width="small"),
             "Serveur": st.column_config.TextColumn("Serveur", width="medium"),
             "Population": st.column_config.TextColumn("Pop.", width="small"),
-            "Prix Min": st.column_config.TextColumn("Prix Min", width="small"),
-            "Volume": st.column_config.NumberColumn("Volume", width="small"),
+            "Prix Min": st.column_config.NumberColumn("Prix Min", width="small", format="%.0f g"),
+            "Var. Stock 7j": st.column_config.TextColumn("Var. Stock 7j", width="small"),
             "Score %": st.column_config.TextColumn("Score", width="small"),
         }
     )
@@ -1206,6 +1520,15 @@ def main():
     
     # Contenu principal
     render_item_list(selected_realm_id)
+    
+    # Fetch des icônes en arrière-plan (30 par chargement de page)
+    # Cela permet de progressivement remplir le cache sans bloquer l'UI
+    try:
+        fetched = fetch_missing_icons(batch_size=30)
+        if fetched > 0:
+            st.toast(f"🖼️ {fetched} icônes récupérées en arrière-plan", icon="✅")
+    except Exception:
+        pass  # Silencieux en cas d'erreur
 
 
 if __name__ == "__main__":
