@@ -761,6 +761,150 @@ class DataManager:
         
         return craft_costs
     
+    def get_craftable_items_profit(self, realm_id: int, profession_ids: List[int] = None) -> List[Dict]:
+        """
+        Récupère tous les items craftables avec calcul du profit.
+        
+        Args:
+            realm_id: ID du serveur pour les prix de vente
+            profession_ids: Liste optionnelle d'IDs de professions pour filtrer
+            
+        Returns:
+            Liste de dicts avec item_id, name, profession_name, craft_cost, 
+            sell_price, profit, profit_margin, volume, score
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # Récupérer tous les items avec recettes
+        if profession_ids:
+            placeholders = ",".join("?" * len(profession_ids))
+            query = f"""
+                SELECT r.crafted_item_id, hi.name, hi.icon_url, hi.category,
+                       r.profession_id, r.profession_name
+                FROM recipes r
+                JOIN housing_items hi ON r.crafted_item_id = hi.item_id
+                WHERE r.profession_id IN ({placeholders})
+            """
+            cursor.execute(query, profession_ids)
+        else:
+            cursor.execute("""
+                SELECT r.crafted_item_id, hi.name, hi.icon_url, hi.category,
+                       r.profession_id, r.profession_name
+                FROM recipes r
+                JOIN housing_items hi ON r.crafted_item_id = hi.item_id
+            """)
+        
+        recipe_items = cursor.fetchall()
+        
+        # Récupérer les prix de vente actuels sur ce serveur
+        cursor.execute("""
+            SELECT item_id, min_price, total_quantity
+            FROM price_history
+            WHERE realm_id = ?
+            AND (item_id, recorded_at) IN (
+                SELECT item_id, MAX(recorded_at)
+                FROM price_history
+                WHERE realm_id = ?
+                GROUP BY item_id
+            )
+        """, (realm_id, realm_id))
+        
+        sell_prices = {}
+        volumes = {}
+        for row in cursor.fetchall():
+            sell_prices[row["item_id"]] = row["min_price"]
+            volumes[row["item_id"]] = row["total_quantity"] or 0
+        
+        conn.close()
+        
+        # Calculer les craft costs en batch
+        craft_costs = self._batch_calculate_craft_costs(realm_id)
+        
+        # Construire la liste des résultats
+        results = []
+        for row in recipe_items:
+            item_id = row["crafted_item_id"]
+            craft_cost = craft_costs.get(item_id, 0)
+            sell_price = sell_prices.get(item_id, 0)
+            volume = volumes.get(item_id, 0)
+            
+            # Calculer les métriques
+            profit = (sell_price - craft_cost) if sell_price and craft_cost else None
+            profit_margin = ((profit / craft_cost) * 100) if profit and craft_cost > 0 else None
+            score = (profit * volume) if profit and volume else 0
+            
+            results.append({
+                "item_id": item_id,
+                "name": row["name"],
+                "icon_url": row["icon_url"],
+                "category": row["category"],
+                "profession_id": row["profession_id"],
+                "profession_name": row["profession_name"],
+                "craft_cost": craft_cost if craft_cost > 0 else None,
+                "sell_price": sell_price if sell_price else None,
+                "profit": profit,
+                "profit_margin": round(profit_margin, 1) if profit_margin else None,
+                "volume": volume,
+                "score": score,
+            })
+        
+        # Trier par score décroissant
+        results.sort(key=lambda x: x["score"] or 0, reverse=True)
+        
+        return results
+    
+    def get_item_profit_by_realm(self, item_id: int) -> List[Dict]:
+        """
+        Récupère le profit potentiel d'un item sur tous les serveurs.
+        
+        Returns:
+            Liste de dicts triés par profit: realm_id, realm_name, sell_price, profit, volume
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # Récupérer les prix de vente sur tous les serveurs
+        cursor.execute("""
+            SELECT ph.realm_id, r.name as realm_name, ph.min_price, ph.total_quantity
+            FROM price_history ph
+            JOIN realms r ON ph.realm_id = r.realm_id
+            WHERE ph.item_id = ?
+            AND (ph.realm_id, ph.recorded_at) IN (
+                SELECT realm_id, MAX(recorded_at)
+                FROM price_history
+                WHERE item_id = ?
+                GROUP BY realm_id
+            )
+        """, (item_id, item_id))
+        
+        realm_prices = cursor.fetchall()
+        conn.close()
+        
+        # Calculer le craft cost (utilise realm_id=0 pour commodities régionales)
+        craft_cost = self.calculate_craft_cost(item_id, 0)
+        
+        results = []
+        for row in realm_prices:
+            sell_price = row["min_price"]
+            volume = row["total_quantity"] or 0
+            profit = (sell_price - craft_cost) if sell_price and craft_cost else None
+            score = (profit * volume) if profit and volume else 0
+            
+            results.append({
+                "realm_id": row["realm_id"],
+                "realm_name": row["realm_name"],
+                "sell_price": sell_price,
+                "profit": profit,
+                "volume": volume,
+                "score": score,
+            })
+        
+        # Trier par score décroissant (profit × volume)
+        results.sort(key=lambda x: x["score"] or 0, reverse=True)
+        
+        return results
+    
     def calculate_craft_cost(self, item_id: int, realm_id: int) -> Optional[int]:
         """
         Calcule le coût de craft d'un item basé sur les prix AH des composants.
@@ -786,18 +930,45 @@ class DataManager:
             reagent_item_id = reagent["reagent_item_id"]
             quantity = reagent["quantity"]
             
-            # Essayer d'abord le prix local du serveur
-            price_data = self.get_current_price(reagent_item_id, realm_id)
+            price_data = None
+            
+            # Essayer d'abord le prix local du serveur (si realm_id != 0)
+            if realm_id != 0:
+                price_data = self.get_current_price(reagent_item_id, realm_id)
             
             # Si pas de prix local, essayer le prix régional (commodities)
             if not price_data or not price_data.get("min_price"):
                 price_data = self.get_current_price(reagent_item_id, 0)  # realm_id=0 = regional
+            
+            # Si toujours pas de prix, chercher n'importe quel prix disponible
+            if not price_data or not price_data.get("min_price"):
+                price_data = self._get_any_price(reagent_item_id)
             
             if price_data and price_data.get("min_price"):
                 total_cost += price_data["min_price"] * quantity
             # Sinon on ignore ce composant (ex: bois qui n'est pas achetable)
         
         return total_cost if total_cost > 0 else None
+    
+    def _get_any_price(self, item_id: int) -> Optional[Dict]:
+        """Récupère n'importe quel prix disponible pour un item (dernier prix enregistré)"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT min_price, avg_price, realm_id
+            FROM price_history
+            WHERE item_id = ?
+            ORDER BY recorded_at DESC
+            LIMIT 1
+        """, (item_id,))
+        
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return {"min_price": row["min_price"], "avg_price": row["avg_price"]}
+        return None
 
 
 # Instance singleton

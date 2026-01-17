@@ -400,7 +400,18 @@ def fetch_auction_data(realm_id: int, housing_items: List[Dict]):
 
 
 def render_sidebar():
-    """Affiche la sidebar avec la sélection du serveur"""
+    """Affiche la sidebar avec la sélection du serveur et de la page"""
+    
+    # Sélecteur de page
+    st.sidebar.markdown("## 📑 Navigation")
+    page = st.sidebar.radio(
+        "Page",
+        ["🏠 Items Housing", "💰 Profits Craft"],
+        label_visibility="collapsed"
+    )
+    st.session_state.current_page = page
+    
+    st.sidebar.markdown("---")
     st.sidebar.markdown("## ⚙️ Configuration")
     
     realms = load_realms()
@@ -589,6 +600,239 @@ def get_cached_items_summary(realm_id: int):
     """Wrapper avec cache pour récupérer le résumé des items"""
     dm = get_data_manager()
     return dm.get_items_summary(realm_id)
+
+
+@st.cache_data(ttl=60)
+def get_cached_profit_data(realm_id: int, profession_ids: tuple = None):
+    """Cache pour les données de profit"""
+    dm = get_data_manager()
+    return dm.get_craftable_items_profit(realm_id, list(profession_ids) if profession_ids else None)
+
+
+def render_profit_page(realm_id: int):
+    """Affiche la page d'analyse des profits de craft"""
+    dm = get_data_manager()
+    
+    st.markdown("## 💰 Analyse des Profits de Craft")
+    st.markdown("Identifiez les items les plus rentables à crafter sur votre serveur.")
+    
+    # Liste des professions disponibles
+    PROFESSIONS = {
+        164: "Forge",
+        165: "Travail du cuir",
+        171: "Alchimie",
+        197: "Couture",
+        202: "Ingénierie",
+        333: "Enchantement",
+        755: "Joaillerie",
+        773: "Calligraphie",
+    }
+    
+    # Filtres
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        selected_professions = st.multiselect(
+            "🔧 Filtrer par métier(s)",
+            options=list(PROFESSIONS.keys()),
+            format_func=lambda x: PROFESSIONS[x],
+            default=None,
+            placeholder="Tous les métiers"
+        )
+    
+    with col2:
+        min_profit_gold = st.number_input(
+            "💰 Profit min (or)",
+            min_value=0,
+            value=0,
+            step=100
+        )
+    
+    with col3:
+        min_volume = st.number_input(
+            "📦 Volume min",
+            min_value=0,
+            value=0,
+            step=1
+        )
+    
+    # Récupérer les données (avec cache)
+    profession_ids = tuple(selected_professions) if selected_professions else None
+    items = get_cached_profit_data(realm_id, profession_ids)
+    
+    # Filtrer par profit et volume minimum
+    min_profit_copper = min_profit_gold * 10000
+    filtered_items = [
+        item for item in items
+        if (item.get("profit") or 0) >= min_profit_copper
+        and (item.get("volume") or 0) >= min_volume
+    ]
+    
+    # Stats summary
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    profitable_count = len([i for i in filtered_items if (i.get("profit") or 0) > 0])
+    total_potential = sum(i.get("profit") or 0 for i in filtered_items if (i.get("profit") or 0) > 0)
+    
+    with col1:
+        st.metric("📊 Items affichés", len(filtered_items))
+    with col2:
+        st.metric("✅ Items rentables", profitable_count)
+    with col3:
+        st.metric("💎 Profit potentiel total", format_gold(total_potential))
+    with col4:
+        avg_margin = sum(i.get("profit_margin") or 0 for i in filtered_items if i.get("profit_margin")) / max(profitable_count, 1)
+        st.metric("📈 Marge moyenne", f"{avg_margin:.1f}%")
+    
+    st.markdown("---")
+    
+    if not filtered_items:
+        st.info("Aucun item ne correspond aux critères. Essayez de réduire les filtres.")
+        return
+    
+    # Préparer les données pour le tableau
+    # Calculer le score max pour afficher en pourcentage
+    max_score = max(item.get("score") or 0 for item in filtered_items) if filtered_items else 1
+    if max_score == 0:
+        max_score = 1
+    
+    df_data = []
+    for item in filtered_items:
+        profit = item.get("profit")
+        indicator = ""
+        if profit:
+            if profit > 500000:  # > 50g
+                indicator = "🟢"
+            elif profit > 0:
+                indicator = "🟡"
+            else:
+                indicator = "🔴"
+        
+        score_pct = int((item.get("score") or 0) / max_score * 100)
+        
+        df_data.append({
+            "Item ID": item["item_id"],
+            "Icon": item.get("icon_url") or "",
+            "Nom": item["name"],
+            "Métier": item["profession_name"],
+            "Coût Craft": format_gold(item.get("craft_cost")),
+            "Prix Vente": format_gold(item.get("sell_price")),
+            "Profit": f"{indicator} {format_gold(profit)}" if profit else "-",
+            "Marge %": f"{item.get('profit_margin'):.1f}%" if item.get("profit_margin") else "-",
+            "Volume": item.get("volume") or 0,
+            "Score": f"{score_pct}%",
+        })
+    
+    df = pd.DataFrame(df_data)
+    
+    # Afficher le tableau
+    event = st.dataframe(
+        df,
+        column_config={
+            "Item ID": None,  # Caché
+            "Icon": st.column_config.ImageColumn("", width="small"),
+            "Nom": st.column_config.TextColumn("Item", width="medium"),
+            "Métier": st.column_config.TextColumn("Métier", width="small"),
+            "Coût Craft": st.column_config.TextColumn("Coût", width="small"),
+            "Prix Vente": st.column_config.TextColumn("Prix Vente", width="small"),
+            "Profit": st.column_config.TextColumn("Profit", width="small"),
+            "Marge %": st.column_config.TextColumn("Marge", width="small"),
+            "Volume": st.column_config.NumberColumn("Volume", width="small"),
+            "Score": st.column_config.TextColumn("Score", width="small"),
+        },
+        hide_index=True,
+        use_container_width=True,
+        selection_mode="single-row",
+        on_select="rerun",
+        key="profit_table"
+    )
+    
+    # Afficher les meilleurs serveurs si un item est sélectionné
+    selected_rows = event.selection.rows if hasattr(event, 'selection') and hasattr(event.selection, 'rows') else []
+    
+    if selected_rows:
+        selected_row_index = selected_rows[0]
+        selected_item_id = int(df.iloc[selected_row_index]["Item ID"])  # Ensure int
+        selected_item_name = df.iloc[selected_row_index]["Nom"]
+        
+        st.markdown("---")
+        st.markdown(f"### 🏆 Meilleurs serveurs pour vendre: **{selected_item_name}**")
+        
+        realm_profits = dm.get_item_profit_by_realm(selected_item_id)
+        
+        if realm_profits:
+            # Filtrer pour ne garder que les serveurs avec un profit calculable
+            valid_realms = [r for r in realm_profits if r.get("profit") is not None]
+            
+            if not valid_realms:
+                st.warning("⚠️ Le coût de craft ne peut pas être calculé pour cet item (composants sans prix disponible). Seul le prix de vente est affiché.")
+                # Afficher quand même les prix de vente
+                top_realms = sorted(realm_profits, key=lambda x: x.get("sell_price") or 0, reverse=True)[:10]
+            else:
+                # Top 10 serveurs avec profit valide
+                top_realms = valid_realms[:10]
+            
+            # Calculer le score max pour le pourcentage
+            max_score = max(r.get("score") or 0 for r in top_realms) if top_realms else 1
+            if max_score == 0:
+                max_score = 1
+            
+            # Afficher le top 3 en cartes visuelles (seulement si profits calculables)
+            if len(top_realms) >= 3 and valid_realms:
+                st.markdown("**Score basé sur : Profit × Volume**")
+                col1, col2, col3 = st.columns(3)
+                
+                medals_emoji = ["🏆", "🥈", "🥉"]
+                ranks = ["1er", "2ème", "3ème"]
+                
+                for i, (col, rank) in enumerate(zip([col1, col2, col3], ranks)):
+                    r = top_realms[i]
+                    score_pct = int((r.get("score") or 0) / max_score * 100)
+                    realm_name = r["realm_name"]
+                    # Tronquer le nom si trop long
+                    if len(realm_name) > 25:
+                        realm_name = realm_name[:22] + "..."
+                    
+                    with col:
+                        st.markdown(f"""
+                        <div style="text-align: center; padding: 10px; background: rgba(255,209,0,0.1); border-radius: 8px;">
+                            <span style="color: #888;">{medals_emoji[i]} {rank}</span><br>
+                            <strong style="font-size: 1.1em;">{realm_name}</strong><br>
+                            <span style="color: #00ff00;">↑ {score_pct}%</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
+                st.markdown("")
+            
+            # Préparer le tableau avec score en %
+            realm_df = pd.DataFrame([
+                {
+                    "Rang": "🥇" if i == 0 else ("🥈" if i == 1 else ("🥉" if i == 2 else f"{i+1}")),
+                    "Serveur": r["realm_name"],
+                    "Prix Vente": format_gold(r.get("sell_price")),
+                    "Profit": format_gold(r.get("profit")) if r.get("profit") else "-",
+                    "Volume": r.get("volume") or 0,
+                    "Score": f"{int((r.get('score') or 0) / max_score * 100)}%" if valid_realms else "-",
+                }
+                for i, r in enumerate(top_realms)
+            ])
+            
+            st.dataframe(
+                realm_df,
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    "Rang": st.column_config.TextColumn("", width="small"),
+                    "Serveur": st.column_config.TextColumn("Serveur", width="medium"),
+                    "Prix Vente": st.column_config.TextColumn("Prix Vente", width="small"),
+                    "Profit": st.column_config.TextColumn("Profit", width="small"),
+                    "Volume": st.column_config.NumberColumn("Volume", width="small"),
+                    "Score": st.column_config.TextColumn("Score", width="small"),
+                }
+            )
+        else:
+            st.info("Pas de données de prix disponibles pour cet item.")
 
 
 def render_item_list(realm_id: int):
@@ -1518,8 +1762,14 @@ def main():
         st.warning("Veuillez sélectionner un serveur de référence dans la sidebar.")
         return
     
-    # Contenu principal
-    render_item_list(selected_realm_id)
+    # Routing des pages
+    current_page = st.session_state.get("current_page", "🏠 Items Housing")
+    
+    if current_page == "💰 Profits Craft":
+        render_profit_page(selected_realm_id)
+    else:
+        # Page par défaut: Items Housing
+        render_item_list(selected_realm_id)
     
     # Fetch des icônes en arrière-plan (30 par chargement de page)
     # Cela permet de progressivement remplir le cache sans bloquer l'UI
