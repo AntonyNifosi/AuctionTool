@@ -101,6 +101,15 @@ def format_gold(copper_value: Optional[int]) -> str:
     if copper_value is None:
         return "N/A"
     
+    # Gérer les valeurs NaN (float)
+    try:
+        import math
+        if math.isnan(float(copper_value)):
+            return "N/A"
+    except (TypeError, ValueError):
+        pass
+    
+    copper_value = int(copper_value)
     gold = copper_value // 10000
     silver = (copper_value % 10000) // 100
     copper = copper_value % 100
@@ -120,6 +129,14 @@ def format_trend(trend: Optional[float]) -> str:
     """Formate la tendance avec une couleur appropriée"""
     if trend is None:
         return "📊 N/A"
+    
+    # Gérer les valeurs NaN
+    try:
+        import math
+        if math.isnan(float(trend)):
+            return "📊 N/A"
+    except (TypeError, ValueError):
+        pass
     
     if trend > 5:
         return f"📈 +{trend:.1f}%"
@@ -650,7 +667,7 @@ def render_profit_page(realm_id: int):
     
     with col3:
         min_volume = st.number_input(
-            "📦 Volume min",
+            "📦 Ventes min",
             min_value=0,
             value=0,
             step=1
@@ -660,12 +677,30 @@ def render_profit_page(realm_id: int):
     profession_ids = tuple(selected_professions) if selected_professions else None
     items = get_cached_profit_data(realm_id, profession_ids)
     
-    # Filtrer par profit et volume minimum
+    # Récupérer les expansions disponibles
+    available_expansions = sorted(set(
+        item.get("expansion") for item in items if item.get("expansion")
+    ))
+    
+    # Filtre d'expansion (toujours affiché)
+    selected_expansions = st.multiselect(
+        "📅 Filtrer par extension",
+        options=available_expansions if available_expansions else ["(Rescan nécessaire)"],
+        default=None,
+        placeholder="Toutes les extensions",
+        disabled=not available_expansions
+    )
+    if not available_expansions:
+        st.caption("ℹ️ Rescanner les recettes pour activer ce filtre")
+        selected_expansions = []
+    
+    # Filtrer par profit, volume et expansion
     min_profit_copper = min_profit_gold * 10000
     filtered_items = [
         item for item in items
         if (item.get("profit") or 0) >= min_profit_copper
         and (item.get("volume") or 0) >= min_volume
+        and (not selected_expansions or item.get("expansion") in selected_expansions)
     ]
     
     # Stats summary
@@ -720,7 +755,7 @@ def render_profit_page(realm_id: int):
             "Prix Vente": format_gold(item.get("sell_price")),
             "Profit": f"{indicator} {format_gold(profit)}" if profit else "-",
             "Marge %": f"{item.get('profit_margin'):.1f}%" if item.get("profit_margin") else "-",
-            "Volume": item.get("volume") or 0,
+            "Ventes 7j": item.get("volume") or 0,
             "Score": f"{score_pct}%",
         })
     
@@ -738,7 +773,7 @@ def render_profit_page(realm_id: int):
             "Prix Vente": st.column_config.TextColumn("Prix Vente", width="small"),
             "Profit": st.column_config.TextColumn("Profit", width="small"),
             "Marge %": st.column_config.TextColumn("Marge", width="small"),
-            "Volume": st.column_config.NumberColumn("Volume", width="small"),
+            "Ventes 7j": st.column_config.NumberColumn("Ventes 7j", width="small"),
             "Score": st.column_config.TextColumn("Score", width="small"),
         },
         hide_index=True,
@@ -812,7 +847,7 @@ def render_profit_page(realm_id: int):
                     "Serveur": r["realm_name"],
                     "Prix Vente": format_gold(r.get("sell_price")),
                     "Profit": format_gold(r.get("profit")) if r.get("profit") else "-",
-                    "Volume": r.get("volume") or 0,
+                    "Ventes 7j": r.get("volume") or 0,
                     "Score": f"{int((r.get('score') or 0) / max_score * 100)}%" if valid_realms else "-",
                 }
                 for i, r in enumerate(top_realms)
@@ -827,7 +862,7 @@ def render_profit_page(realm_id: int):
                     "Serveur": st.column_config.TextColumn("Serveur", width="medium"),
                     "Prix Vente": st.column_config.TextColumn("Prix Vente", width="small"),
                     "Profit": st.column_config.TextColumn("Profit", width="small"),
-                    "Volume": st.column_config.NumberColumn("Volume", width="small"),
+                    "Ventes 7j": st.column_config.NumberColumn("Ventes 7j", width="small"),
                     "Score": st.column_config.TextColumn("Score", width="small"),
                 }
             )

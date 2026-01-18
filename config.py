@@ -25,7 +25,13 @@ STATIC_NAMESPACE = f"static-{API_REGION}"
 DEFAULT_LOCALE = "fr_FR"
 
 # Configuration de la base de données
-DATABASE_PATH = "housing_data.db"
+# Utilise le dossier data/ pour Docker, sinon le répertoire courant
+import os as _os
+_data_dir = _os.path.join(_os.path.dirname(__file__), "data")
+if _os.path.isdir(_data_dir):
+    DATABASE_PATH = _os.getenv("DATABASE_PATH", _os.path.join(_data_dir, "housing_data.db"))
+else:
+    DATABASE_PATH = _os.getenv("DATABASE_PATH", "housing_data.db")
 
 # Configuration du cache
 CACHE_DURATION_HOURS = 1  # Durée de validité du cache des auctions

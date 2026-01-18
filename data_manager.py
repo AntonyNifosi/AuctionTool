@@ -106,6 +106,7 @@ class DataManager:
                 profession_id INTEGER,
                 profession_name TEXT,
                 recipe_name TEXT,
+                expansion TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (crafted_item_id) REFERENCES housing_items(item_id)
             )
@@ -132,6 +133,12 @@ class DataManager:
             CREATE INDEX IF NOT EXISTS idx_reagents_recipe 
             ON recipe_reagents(recipe_id)
         """)
+        
+        # Migration: ajouter colonne expansion si elle n'existe pas
+        try:
+            cursor.execute("ALTER TABLE recipes ADD COLUMN expansion TEXT")
+        except sqlite3.OperationalError:
+            pass
         
         conn.commit()
         conn.close()
@@ -525,8 +532,8 @@ class DataManager:
         
         return items
     
-    def cleanup_old_data(self, days: int = 30):
-        """Supprime les données de plus de X jours"""
+    def cleanup_old_data(self, days: int = 7):
+        """Supprime les données de plus de X jours (défaut: 7 jours)"""
         conn = self._get_connection()
         cursor = conn.cursor()
         
@@ -616,25 +623,27 @@ class DataManager:
     # ========== RECIPE METHODS ==========
     
     def has_recipes_synced(self) -> bool:
-        """Vérifie si des recettes ont déjà été synchronisées"""
+        """Vérifie si des recettes ont déjà été synchronisées avec expansion"""
         conn = self._get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) as count FROM recipes")
+        # Vérifie qu'il y a des recettes ET qu'elles ont l'expansion remplie
+        cursor.execute("SELECT COUNT(*) as count FROM recipes WHERE expansion IS NOT NULL")
         row = cursor.fetchone()
         conn.close()
         return row["count"] > 0
     
     def save_recipe(self, recipe_id: int, crafted_item_id: int, 
-                    profession_id: int, profession_name: str, recipe_name: str):
+                    profession_id: int, profession_name: str, recipe_name: str,
+                    expansion: str = None):
         """Sauvegarde ou met à jour une recette"""
         conn = self._get_connection()
         cursor = conn.cursor()
         
         cursor.execute("""
             INSERT OR REPLACE INTO recipes 
-            (recipe_id, crafted_item_id, profession_id, profession_name, recipe_name, updated_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        """, (recipe_id, crafted_item_id, profession_id, profession_name, recipe_name))
+            (recipe_id, crafted_item_id, profession_id, profession_name, recipe_name, expansion, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (recipe_id, crafted_item_id, profession_id, profession_name, recipe_name, expansion))
         
         conn.commit()
         conn.close()
@@ -781,7 +790,7 @@ class DataManager:
             placeholders = ",".join("?" * len(profession_ids))
             query = f"""
                 SELECT r.crafted_item_id, hi.name, hi.icon_url, hi.category,
-                       r.profession_id, r.profession_name
+                       r.profession_id, r.profession_name, r.expansion
                 FROM recipes r
                 JOIN housing_items hi ON r.crafted_item_id = hi.item_id
                 WHERE r.profession_id IN ({placeholders})
@@ -790,7 +799,7 @@ class DataManager:
         else:
             cursor.execute("""
                 SELECT r.crafted_item_id, hi.name, hi.icon_url, hi.category,
-                       r.profession_id, r.profession_name
+                       r.profession_id, r.profession_name, r.expansion
                 FROM recipes r
                 JOIN housing_items hi ON r.crafted_item_id = hi.item_id
             """)
@@ -811,12 +820,39 @@ class DataManager:
         """, (realm_id, realm_id))
         
         sell_prices = {}
-        volumes = {}
+        current_stock = {}
         for row in cursor.fetchall():
             sell_prices[row["item_id"]] = row["min_price"]
-            volumes[row["item_id"]] = row["total_quantity"] or 0
+            current_stock[row["item_id"]] = row["total_quantity"] or 0
+        
+        # Récupérer le stock au début de la semaine (il y a 7 jours)
+        cursor.execute("""
+            SELECT item_id, total_quantity
+            FROM price_history
+            WHERE realm_id = ?
+            AND recorded_at >= datetime('now', '-7 days')
+            AND (item_id, recorded_at) IN (
+                SELECT item_id, MIN(recorded_at)
+                FROM price_history
+                WHERE realm_id = ? AND recorded_at >= datetime('now', '-7 days')
+                GROUP BY item_id
+            )
+        """, (realm_id, realm_id))
+        
+        start_stock = {}
+        for row in cursor.fetchall():
+            start_stock[row["item_id"]] = row["total_quantity"] or 0
         
         conn.close()
+        
+        # Calculer le volume échangé (vendu) = stock début - stock actuel
+        # Si positif = items vendus, si négatif = items ajoutés (on prend max 0)
+        traded_volume = {}
+        for item_id in set(current_stock.keys()) | set(start_stock.keys()):
+            start = start_stock.get(item_id, 0)
+            current = current_stock.get(item_id, 0)
+            # Volume vendu = réduction du stock (max 0 pour ignorer les ajouts)
+            traded_volume[item_id] = max(0, start - current)
         
         # Calculer les craft costs en batch
         craft_costs = self._batch_calculate_craft_costs(realm_id)
@@ -827,7 +863,7 @@ class DataManager:
             item_id = row["crafted_item_id"]
             craft_cost = craft_costs.get(item_id, 0)
             sell_price = sell_prices.get(item_id, 0)
-            volume = volumes.get(item_id, 0)
+            volume = traded_volume.get(item_id, 0)
             
             # Calculer les métriques
             profit = (sell_price - craft_cost) if sell_price and craft_cost else None
@@ -841,6 +877,7 @@ class DataManager:
                 "category": row["category"],
                 "profession_id": row["profession_id"],
                 "profession_name": row["profession_name"],
+                "expansion": row["expansion"],
                 "craft_cost": craft_cost if craft_cost > 0 else None,
                 "sell_price": sell_price if sell_price else None,
                 "profit": profit,
@@ -859,12 +896,12 @@ class DataManager:
         Récupère le profit potentiel d'un item sur tous les serveurs.
         
         Returns:
-            Liste de dicts triés par profit: realm_id, realm_name, sell_price, profit, volume
+            Liste de dicts triés par score: realm_id, realm_name, sell_price, profit, volume (traded), score
         """
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # Récupérer les prix de vente sur tous les serveurs
+        # Récupérer les prix de vente actuels sur tous les serveurs
         cursor.execute("""
             SELECT ph.realm_id, r.name as realm_name, ph.min_price, ph.total_quantity
             FROM price_history ph
@@ -878,22 +915,51 @@ class DataManager:
             )
         """, (item_id, item_id))
         
-        realm_prices = cursor.fetchall()
+        realm_current = {}
+        for row in cursor.fetchall():
+            realm_current[row["realm_id"]] = {
+                "realm_name": row["realm_name"],
+                "min_price": row["min_price"],
+                "current_stock": row["total_quantity"] or 0,
+            }
+        
+        # Récupérer le stock au début de la semaine pour chaque serveur
+        cursor.execute("""
+            SELECT realm_id, total_quantity
+            FROM price_history
+            WHERE item_id = ?
+            AND recorded_at >= datetime('now', '-7 days')
+            AND (realm_id, recorded_at) IN (
+                SELECT realm_id, MIN(recorded_at)
+                FROM price_history
+                WHERE item_id = ? AND recorded_at >= datetime('now', '-7 days')
+                GROUP BY realm_id
+            )
+        """, (item_id, item_id))
+        
+        start_stock = {}
+        for row in cursor.fetchall():
+            start_stock[row["realm_id"]] = row["total_quantity"] or 0
+        
         conn.close()
         
         # Calculer le craft cost (utilise realm_id=0 pour commodities régionales)
         craft_cost = self.calculate_craft_cost(item_id, 0)
         
         results = []
-        for row in realm_prices:
-            sell_price = row["min_price"]
-            volume = row["total_quantity"] or 0
+        for realm_id, data in realm_current.items():
+            sell_price = data["min_price"]
+            current = data["current_stock"]
+            start = start_stock.get(realm_id, 0)
+            # Volume vendu = réduction du stock (max 0)
+            volume = max(0, start - current)
+            
             profit = (sell_price - craft_cost) if sell_price and craft_cost else None
             score = (profit * volume) if profit and volume else 0
             
             results.append({
-                "realm_id": row["realm_id"],
-                "realm_name": row["realm_name"],
+                "realm_id": realm_id,
+                "realm_name": data["realm_name"],
                 "sell_price": sell_price,
                 "profit": profit,
                 "volume": volume,

@@ -303,6 +303,11 @@ class UpdateManager:
                     if not tier_id:
                         continue
                     
+                    # Extraire le nom du tier (correspond à l'expansion)
+                    tier_name = tier.get("name", "")
+                    if isinstance(tier_name, dict):
+                        tier_name = tier_name.get("fr_FR") or tier_name.get("en_US") or ""
+                    
                     try:
                         tier_data = api.get_profession_skill_tier(prof_id, tier_id)
                         categories = tier_data.get("categories", [])
@@ -354,7 +359,8 @@ class UpdateManager:
                                             crafted_item_id=crafted_item_id,
                                             profession_id=prof_id,
                                             profession_name=prof_name,
-                                            recipe_name=recipe_name
+                                            recipe_name=recipe_name,
+                                            expansion=tier_name
                                         )
                                         
                                         # Sauvegarder les réactifs
