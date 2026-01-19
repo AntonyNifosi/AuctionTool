@@ -1,0 +1,81 @@
+/* Items Page Styles */
+.items-page {
+    max-width: 1400px;
+}
+
+.results-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+    font-size: 0.875rem;
+}
+
+.results-count {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.results-server {
+    color: var(--text-muted);
+}
+
+.results-hint {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.error-banner {
+    padding: var(--spacing-md);
+    background: var(--color-danger-bg);
+    border: 1px solid var(--color-danger);
+    border-radius: var(--radius-md);
+    color: var(--color-danger);
+    margin-bottom: var(--spacing-md);
+}
+
+.item-icon-placeholder {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    font-size: 1.25rem;
+}
+
+.clickable-row {
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.clickable-row:hover {
+    background: var(--bg-tertiary) !important;
+    border-left: 3px solid var(--accent-gold);
+}
+
+.clickable-row:hover .item-name {
+    color: var(--accent-gold);
+}
+
+.text-success {
+    color: var(--color-success);
+}
+
+.text-danger {
+    color: var(--color-danger);
+}
+
+/* Make table scroll horizontally on small screens */
+@media (max-width: 1200px) {
+    .table {
+        font-size: 0.8125rem;
+    }
+
+    .table th,
+    .table td {
+        padding: 0.625rem 0.5rem;
+    }
+}
