@@ -412,6 +412,33 @@ class BlizzardAPI:
             return self._make_request(f"/data/wow/media/pet/{pet_id}", STATIC_NAMESPACE)
         except BlizzardAPIError:
             return {}
+    
+    def get_character_pets(self, realm_slug: str, character_name: str) -> Dict:
+        """
+        Récupère la collection de pets d'un personnage.
+        
+        Args:
+            realm_slug: Nom du serveur en slug (ex: "argent-dawn", "uldaman")
+            character_name: Nom du personnage en minuscules
+        
+        Returns:
+            Dict avec 'pets' (liste des pets) et 'unlocked_battle_pet_slots'
+        """
+        try:
+            # Le namespace profile est différent
+            profile_namespace = "profile-eu"
+            
+            # Le nom du personnage doit être en minuscules
+            char_name_lower = character_name.lower()
+            realm_slug_lower = realm_slug.lower().replace(" ", "-").replace("'", "")
+            
+            endpoint = f"/profile/wow/character/{realm_slug_lower}/{char_name_lower}/collections/pets"
+            data = self._make_request(endpoint, profile_namespace)
+            
+            return data
+        except BlizzardAPIError as e:
+            print(f"Error fetching character pets: {e}")
+            return {}
 
 
 # Instance singleton pour faciliter l'utilisation

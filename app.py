@@ -422,13 +422,13 @@ def render_sidebar():
     # Sélecteur de page avec persistence via query params
     st.sidebar.markdown("## 📑 Navigation")
     
-    pages = ["🏠 Items Housing", "💰 Profits Craft", "🐾 Pets"]
+    pages = ["🏠 Items Housing", "💰 Profits Craft", "🐾 Pets", "👤 Ma Collection"]
     
     # Récupérer la page depuis les query params (pour persistence au refresh)
     query_page = st.query_params.get("page", None)
     default_index = 0
     if query_page:
-        page_map = {"housing": 0, "craft": 1, "pets": 2}
+        page_map = {"housing": 0, "craft": 1, "pets": 2, "collection": 3}
         default_index = page_map.get(query_page, 0)
     
     page = st.sidebar.radio(
@@ -440,7 +440,7 @@ def render_sidebar():
     st.session_state.current_page = page
     
     # Sauvegarder dans query params pour persistence
-    page_keys = {"🏠 Items Housing": "housing", "💰 Profits Craft": "craft", "🐾 Pets": "pets"}
+    page_keys = {"🏠 Items Housing": "housing", "💰 Profits Craft": "craft", "🐾 Pets": "pets", "👤 Ma Collection": "collection"}
     st.query_params["page"] = page_keys.get(page, "housing")
     
     st.sidebar.markdown("---")
@@ -2017,6 +2017,145 @@ def render_pets_page(realm_id: int):
             else:
                 st.info("Pas de données de prix disponibles pour ce pet.")
 
+
+def render_collection_page(realm_id: int):
+    """Affiche la collection de pets d'un joueur avec les prix de vente"""
+    
+    st.markdown("## 👤 Ma Collection de Pets")
+    st.markdown("Entrez le nom de votre personnage pour voir la valeur de votre collection")
+    
+    dm = get_data_manager()
+    
+    # Formulaire pour permettre Entrée = Rechercher
+    with st.form("collection_search_form"):
+        col1, col2, col3 = st.columns([2, 2, 1])
+        
+        with col1:
+            # Liste des serveurs pour le dropdown
+            realms = load_realms()
+            realm_names = sorted([r["name"] for r in realms]) if realms else []
+            selected_realm_name = st.selectbox(
+                "🌍 Serveur",
+                options=realm_names,
+                placeholder="Choisir un serveur"
+            )
+        
+        with col2:
+            character_name = st.text_input(
+                "👤 Nom du personnage",
+                placeholder="Ex: Jaina"
+            )
+        
+        with col3:
+            st.markdown("<br>", unsafe_allow_html=True)  # Spacer
+            search_button = st.form_submit_button("🔍 Rechercher", use_container_width=True)
+    
+    # Rechercher la collection
+    if search_button and character_name and selected_realm_name:
+        with st.spinner(f"Chargement de la collection de {character_name}..."):
+            from blizzard_api import get_api
+            api = get_api()
+            
+            # Convertir le nom du serveur en slug
+            realm_slug = selected_realm_name.lower().replace(" ", "-").replace("'", "")
+            
+            # Récupérer les pets du personnage
+            collection_data = api.get_character_pets(realm_slug, character_name)
+            
+            if not collection_data or "pets" not in collection_data:
+                st.error(f"❌ Personnage '{character_name}' non trouvé sur {selected_realm_name} ou profil privé.")
+                st.info("💡 Assurez-vous que le nom est correct et que le profil n'est pas privé dans les options Battle.net")
+                return
+            
+            player_pets = collection_data.get("pets", [])
+            st.success(f"✅ {len(player_pets)} pets trouvés dans la collection !")
+            
+            # Récupérer les infos de pets depuis notre BDD
+            db_pets = {p["pet_id"]: p for p in dm.get_pets()}
+            
+            # Construire le tableau avec les prix
+            df_data = []
+            total_value = 0
+            tradable_count = 0
+            
+            for player_pet in player_pets:
+                species = player_pet.get("species", {})
+                species_id = species.get("id")
+                pet_name = species.get("name", "Inconnu")
+                quality = player_pet.get("quality", {}).get("name", "-")
+                level = player_pet.get("level", 1)
+                
+                # Chercher le pet dans notre BDD
+                db_pet = db_pets.get(species_id, {})
+                
+                # Récupérer le prix moyen sur tous les serveurs
+                price = None
+                if species_id:
+                    prices = dm.get_pet_all_realms_prices(species_id)
+                    if prices:
+                        valid_prices = [p["min_price"] for p in prices if p.get("min_price")]
+                        if valid_prices:
+                            price = min(valid_prices)  # Prix le plus bas
+                
+                is_tradable = db_pet.get("is_tradable", False) if db_pet else False
+                
+                if price and is_tradable:
+                    total_value += price
+                    tradable_count += 1
+                
+                df_data.append({
+                    "Icon": db_pet.get("icon_url") or "",
+                    "Nom": pet_name,
+                    "Niveau": level,
+                    "Qualité": quality,
+                    "Type": db_pet.get("creature_type", "-"),
+                    "Prix": format_gold(price) if price else "N/A",
+                    "Prix_num": price or 0,
+                    "Échangeable": "✅" if is_tradable else "❌",
+                })
+            
+            # Créer le DataFrame
+            df = pd.DataFrame(df_data)
+            
+            # Trier par prix décroissant
+            if not df.empty:
+                df = df.sort_values("Prix_num", ascending=False).reset_index(drop=True)
+            
+            # Afficher les stats
+            st.markdown("---")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("📊 Total pets", len(player_pets))
+            with col2:
+                st.metric("💰 Échangeables", tradable_count)
+            with col3:
+                st.metric("🏆 Valeur totale", format_gold(total_value))
+            with col4:
+                # Valeur en or (gold)
+                gold_value = total_value // 10000
+                st.metric("🪙 En or", f"{gold_value:,}g".replace(",", " "))
+            
+            st.markdown("---")
+            
+            # Afficher le tableau
+            st.dataframe(
+                df,
+                column_config={
+                    "Prix_num": None,  # Caché
+                    "Icon": st.column_config.ImageColumn("", width="small"),
+                    "Nom": st.column_config.TextColumn("Nom", width="medium"),
+                    "Niveau": st.column_config.NumberColumn("Niv.", width="small"),
+                    "Qualité": st.column_config.TextColumn("Qualité", width="small"),
+                    "Type": st.column_config.TextColumn("Type", width="small"),
+                    "Prix": st.column_config.TextColumn("Prix (min)", width="small"),
+                    "Échangeable": st.column_config.TextColumn("💱", width="small"),
+                },
+                hide_index=True,
+                use_container_width=True,
+                height=600
+            )
+
+
 def main():
     """Fonction principale de l'application"""
     initialize_session_state()
@@ -2065,6 +2204,8 @@ def main():
         render_profit_page(selected_realm_id)
     elif current_page == "🐾 Pets":
         render_pets_page(selected_realm_id)
+    elif current_page == "👤 Ma Collection":
+        render_collection_page(selected_realm_id)
     else:
         # Page par défaut: Items Housing
         render_item_list(selected_realm_id)
