@@ -419,14 +419,29 @@ def fetch_auction_data(realm_id: int, housing_items: List[Dict]):
 def render_sidebar():
     """Affiche la sidebar avec la sélection du serveur et de la page"""
     
-    # Sélecteur de page
+    # Sélecteur de page avec persistence via query params
     st.sidebar.markdown("## 📑 Navigation")
+    
+    pages = ["🏠 Items Housing", "💰 Profits Craft", "🐾 Pets"]
+    
+    # Récupérer la page depuis les query params (pour persistence au refresh)
+    query_page = st.query_params.get("page", None)
+    default_index = 0
+    if query_page:
+        page_map = {"housing": 0, "craft": 1, "pets": 2}
+        default_index = page_map.get(query_page, 0)
+    
     page = st.sidebar.radio(
         "Page",
-        ["🏠 Items Housing", "💰 Profits Craft"],
+        pages,
+        index=default_index,
         label_visibility="collapsed"
     )
     st.session_state.current_page = page
+    
+    # Sauvegarder dans query params pour persistence
+    page_keys = {"🏠 Items Housing": "housing", "💰 Profits Craft": "craft", "🐾 Pets": "pets"}
+    st.query_params["page"] = page_keys.get(page, "housing")
     
     st.sidebar.markdown("---")
     st.sidebar.markdown("## ⚙️ Configuration")
@@ -483,6 +498,22 @@ def render_sidebar():
         "➡️ = Prix stable\n\n"
         "**Note :** 'N/A' signifie que l'item n'est pas en vente actuellement à l'Hôtel des Ventes de ce serveur."
     )
+    
+    # Afficher la dernière mise à jour
+    dm = get_data_manager()
+    last_update = dm.get_last_price_update()
+    if last_update:
+        from datetime import timezone
+        if last_update.tzinfo is None:
+            last_update = last_update.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        age = now - last_update
+        minutes = int(age.total_seconds() // 60)
+        if minutes < 60:
+            st.sidebar.caption(f"🕒 Dernière mise à jour il y a {minutes} min")
+        else:
+            hours = minutes // 60
+            st.sidebar.caption(f"🕒 Dernière mise à jour il y a {hours}h {minutes % 60}min")
     
     return st.session_state.selected_realm_id
 
@@ -677,22 +708,64 @@ def render_profit_page(realm_id: int):
     profession_ids = tuple(selected_professions) if selected_professions else None
     items = get_cached_profit_data(realm_id, profession_ids)
     
-    # Récupérer les expansions disponibles
-    available_expansions = sorted(set(
-        item.get("expansion") for item in items if item.get("expansion")
-    ))
+    # Extraire les noms d'extensions purs (sans le nom du métier)
+    # Ex: "Joaillerie des Îles aux Dragons" -> "Îles aux Dragons"
+    # Liste des extensions connues
+    KNOWN_EXPANSIONS = [
+        "Khaz Algar", "The War Within",
+        "Îles aux Dragons", "Dragon Isles", "Îles aux dragons",
+        "Shadowlands", "Terres obscures", "Ombreterre",
+        "Kul Tiras", "Zandalar", "Battle for Azeroth",
+        "Legion", "Légion",
+        "Draenor", "Warlords of Draenor",
+        "Pandarie", "Mists of Pandaria", "Pandaria",
+        "Cataclysm", "Cataclysme",
+        "Northrend", "Norfendre", "Wrath of the Lich King",
+        "Outland", "Outreterre", "Burning Crusade",
+        "Classic", "Classique", "Vanilla",
+    ]
+    
+    def extract_expansion_name(tier_name: str) -> str:
+        if not tier_name:
+            return ""
+        # Chercher une expansion connue dans le nom
+        for exp in KNOWN_EXPANSIONS:
+            if exp.lower() in tier_name.lower():
+                return exp
+        # Fallback: ne pas inclure si non reconnue
+        return ""
+    
+    # Créer un mapping expansion_display -> liste de raw expansions
+    expansion_to_raw = {}
+    for item in items:
+        raw_exp = item.get("expansion")
+        if raw_exp:
+            display_exp = extract_expansion_name(raw_exp)
+            if display_exp:  # Ne pas inclure les expansions non reconnues
+                if display_exp not in expansion_to_raw:
+                    expansion_to_raw[display_exp] = set()
+                expansion_to_raw[display_exp].add(raw_exp)
+    
+    available_expansions = sorted(expansion_to_raw.keys())
     
     # Filtre d'expansion (toujours affiché)
-    selected_expansions = st.multiselect(
+    selected_expansion_display = st.multiselect(
         "📅 Filtrer par extension",
         options=available_expansions if available_expansions else ["(Rescan nécessaire)"],
         default=None,
         placeholder="Toutes les extensions",
         disabled=not available_expansions
     )
+    
+    # Convertir les noms affichés en valeurs raw pour le filtrage
+    selected_raw_expansions = set()
+    for exp_display in selected_expansion_display:
+        if exp_display in expansion_to_raw:
+            selected_raw_expansions.update(expansion_to_raw[exp_display])
+    
     if not available_expansions:
         st.caption("ℹ️ Rescanner les recettes pour activer ce filtre")
-        selected_expansions = []
+        selected_raw_expansions = set()
     
     # Filtrer par profit, volume et expansion
     min_profit_copper = min_profit_gold * 10000
@@ -700,7 +773,7 @@ def render_profit_page(realm_id: int):
         item for item in items
         if (item.get("profit") or 0) >= min_profit_copper
         and (item.get("volume") or 0) >= min_volume
-        and (not selected_expansions or item.get("expansion") in selected_expansions)
+        and (not selected_raw_expansions or item.get("expansion") in selected_raw_expansions)
     ]
     
     # Stats summary
@@ -1756,6 +1829,194 @@ def render_statistics(item_id: int, realm_id: int):
             st.info("Pas de données de volume disponibles.")
 
 
+def render_pets_page(realm_id: int):
+    """Affiche la page des pets avec prix et meilleurs serveurs"""
+    
+    st.markdown("## 🐾 Battle Pets")
+    st.markdown("Prix des familiers par serveur")
+    
+    dm = get_data_manager()
+    
+    # Récupérer les pets avec leurs prix
+    pets = dm.get_pets_summary(realm_id)
+    
+    if not pets:
+        st.warning("Aucun pet trouvé. Lancez un scan pour synchroniser les pets.")
+        return
+    
+    # Filtres
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Filtre par type de créature
+        creature_types = sorted(set(
+            p.get("creature_type") for p in pets if p.get("creature_type")
+        ))
+        selected_types = st.multiselect(
+            "🐉 Type de créature",
+            options=creature_types if creature_types else ["Tous"],
+            default=None,
+            placeholder="Tous les types",
+            disabled=not creature_types
+        )
+    
+    with col2:
+        # Filtre par source (comment l'obtenir)
+        sources = sorted(set(
+            p.get("source") for p in pets if p.get("source")
+        ))
+        selected_sources = st.multiselect(
+            "📦 Comment l'obtenir",
+            options=sources if sources else ["Tous"],
+            default=None,
+            placeholder="Toutes les sources",
+            disabled=not sources
+        )
+    
+    with col3:
+        # Recherche par nom
+        search_query = st.text_input("🔍 Rechercher", placeholder="Nom du pet...")
+    
+    # Filtrer les pets
+    filtered_pets = pets
+    if selected_types:
+        filtered_pets = [p for p in filtered_pets if p.get("creature_type") in selected_types]
+    if selected_sources:
+        filtered_pets = [p for p in filtered_pets if p.get("source") in selected_sources]
+    if search_query:
+        search_lower = search_query.lower()
+        filtered_pets = [p for p in filtered_pets if search_lower in (p.get("name") or "").lower()]
+    
+    # Stats
+    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("📊 Pets affichés", len(filtered_pets))
+    with col2:
+        pets_with_price = len([p for p in filtered_pets if p.get("min_price")])
+        st.metric("💰 Avec prix", pets_with_price)
+    with col3:
+        st.metric("📦 Total pets", len(pets))
+    
+    st.markdown("---")
+    
+    # Préparer les données pour le tableau
+    df_data = []
+    for pet in filtered_pets:
+        price = pet.get("min_price") or 0  # 0 pour N/A (tri en bas)
+        pet_id = pet["pet_id"]
+        pet_name = pet.get("name") or "Inconnu"
+        creature_id = pet.get("creature_id")
+        # URL wowhead: npc si creature_id disponible, sinon battle-pet
+        if creature_id:
+            wowhead_url = f"https://www.wowhead.com/fr/npc={creature_id}"
+        else:
+            wowhead_url = f"https://www.wowhead.com/fr/battle-pet/{pet_id}"
+        df_data.append({
+            "Pet ID": pet_id,
+            "Icon": pet.get("icon_url") or "",
+            "Nom": pet_name,
+            "Type": pet.get("creature_type") or "-",
+            "Source": pet.get("source") or "-",
+            "Prix_num": price,  # Colonne numérique pour le tri
+            "Prix": format_gold(price) if price > 0 else "N/A",
+            "Qté": pet.get("total_quantity") or 0,
+            "Wowhead": wowhead_url,
+        })
+    
+    df = pd.DataFrame(df_data)
+    
+    # Trier par prix décroissant (N/A = 0 en bas) - seulement si le df n'est pas vide
+    if not df.empty:
+        df = df.sort_values("Prix_num", ascending=False).reset_index(drop=True)
+    
+    # Afficher le tableau
+    event = st.dataframe(
+        df,
+        column_config={
+            "Pet ID": None,  # Caché
+            "Prix_num": None,  # Caché (utilisé pour le tri)
+            "Icon": st.column_config.ImageColumn("", width="small"),
+            "Nom": st.column_config.TextColumn("Nom", width="medium"),
+            "Type": st.column_config.TextColumn("Type", width="small"),
+            "Source": st.column_config.TextColumn("Comment l'obtenir", width="large"),
+            "Prix": st.column_config.TextColumn("Prix", width="small"),
+            "Qté": st.column_config.NumberColumn("Qté", width="small"),
+            "Wowhead": st.column_config.LinkColumn("🔗", width="small", display_text="Wowhead"),
+        },
+        hide_index=True,
+        use_container_width=True,
+        selection_mode="single-row",
+        on_select="rerun",
+        key="pets_table"
+    )
+    
+    # Afficher les meilleurs serveurs si un pet est sélectionné
+    if event and event.selection and event.selection.rows:
+        selected_idx = event.selection.rows[0]
+        if selected_idx < len(df):
+            # Convert numpy.int64 to Python int for SQLite compatibility
+            selected_pet_id = int(df.iloc[selected_idx]["Pet ID"])
+            selected_pet_name = df.iloc[selected_idx]["Nom"]
+            
+            st.markdown("---")
+            st.markdown(f"### 🏆 Meilleurs serveurs pour **{selected_pet_name}**")
+            
+            # Sélecteur mode Achat/Vente
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                mode = st.radio(
+                    "Mode",
+                    ["🛒 Achat", "💰 Vente"],
+                    index=1,  # Vente par défaut
+                    horizontal=True,
+                    label_visibility="collapsed"
+                )
+            with col2:
+                if mode == "🛒 Achat":
+                    st.caption("🛒 **Achat** : Serveurs où le pet est le moins cher (pour acheter)")
+                else:
+                    st.caption("💰 **Vente** : Serveurs où le pet est le plus cher (pour vendre)")
+            
+            # Récupérer les prix sur tous les serveurs
+            all_realm_prices = dm.get_pet_all_realms_prices(selected_pet_id)
+            
+            # Filtrer les serveurs qui ont des prix
+            realms_with_prices = [r for r in all_realm_prices if r.get("min_price")]
+            
+            if realms_with_prices:
+                # Trier par prix selon le mode
+                if mode == "🛒 Achat":
+                    # Moins cher en premier pour l'achat
+                    top_realms = sorted(realms_with_prices, key=lambda x: x["min_price"])[:10]
+                else:
+                    # Plus cher en premier pour la vente
+                    top_realms = sorted(realms_with_prices, key=lambda x: x["min_price"], reverse=True)[:10]
+                
+                realm_df = pd.DataFrame([
+                    {
+                        "Rang": "🥇" if i == 0 else ("🥈" if i == 1 else ("🥉" if i == 2 else f"{i+1}")),
+                        "Serveur": r["realm_name"],
+                        "Prix": format_gold(r.get("min_price")),
+                        "Qté": r.get("total_quantity") or 0,
+                    }
+                    for i, r in enumerate(top_realms)
+                ])
+                
+                st.dataframe(
+                    realm_df,
+                    hide_index=True,
+                    use_container_width=True,
+                    column_config={
+                        "Rang": st.column_config.TextColumn("", width="small"),
+                        "Serveur": st.column_config.TextColumn("Serveur", width="medium"),
+                        "Prix": st.column_config.TextColumn("Prix", width="small"),
+                        "Qté": st.column_config.NumberColumn("Qté", width="small"),
+                    }
+                )
+            else:
+                st.info("Pas de données de prix disponibles pour ce pet.")
+
 def main():
     """Fonction principale de l'application"""
     initialize_session_state()
@@ -1802,6 +2063,8 @@ def main():
     
     if current_page == "💰 Profits Craft":
         render_profit_page(selected_realm_id)
+    elif current_page == "🐾 Pets":
+        render_pets_page(selected_realm_id)
     else:
         # Page par défaut: Items Housing
         render_item_list(selected_realm_id)

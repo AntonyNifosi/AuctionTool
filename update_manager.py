@@ -74,6 +74,12 @@ class UpdateManager:
             target_item_ids = housing_item_ids | reagent_ids  # Union des deux sets
             print(f"Tracking {len(housing_item_ids)} housing items + {len(reagent_ids)} reagents = {len(target_item_ids)} total")
             
+            # 2. Sync pets (doit être fait AVANT le scan pour avoir les pet_ids)
+            if not dm.has_pets_synced():
+                self.status_message = "Synchronisation des pets..."
+                self._sync_pets(api, dm)
+                if self._stop_event.is_set(): return
+            
             self.status_message = "Récupération de la liste des serveurs..."
             self.progress = 0.1
             
@@ -112,8 +118,13 @@ class UpdateManager:
                     # Fetch auctions
                     all_auctions = api.get_auctions(realm_id)
                     
-                    # Process auctions
+                    # Process housing item auctions
                     self._process_auctions(realm_id, all_auctions, target_item_ids, dm)
+                    
+                    # Process pet auctions
+                    pet_ids = dm.get_pet_ids()
+                    if pet_ids:
+                        self._process_pet_auctions(realm_id, all_auctions, pet_ids, dm)
                     
                 except Exception as e:
                     print(f"Error scanning {realm_name}: {e}")
@@ -137,9 +148,10 @@ class UpdateManager:
                 self._sync_recipes(api, dm, housing_item_ids)
                 if self._stop_event.is_set(): return
             
-            # 5. Fetch missing icons
+            # 5. Fetch missing icons (housing items + pets)
             self.status_message = "Récupération des icônes manquantes..."
             self._fetch_icons(api, dm)
+            self._fetch_pet_icons(api, dm)
 
             self.progress = 1.0
             self.status_message = "Mise à jour terminée avec succès !"
@@ -245,6 +257,48 @@ class UpdateManager:
                     avg_price=avg_price,
                     total_quantity=total_qty,
                     auction_count=auction_count
+                )
+    
+    def _process_pet_auctions(self, realm_id: int, auctions: List[Dict], pet_ids: set, dm):
+        """Traite les enchères de pets pour un serveur"""
+        pet_stats = {}
+        
+        for auction in auctions:
+            # Les pets ont pet_species_id DANS l'objet item, pas à la racine
+            item = auction.get("item", {})
+            pet_species_id = item.get("pet_species_id")
+            if pet_species_id and pet_species_id in pet_ids:
+                if pet_species_id not in pet_stats:
+                    pet_stats[pet_species_id] = {"prices": [], "qty": 0, "quality": None, "level": None}
+                
+                price = auction.get("buyout") or auction.get("unit_price", 0)
+                quality = item.get("pet_quality_id")
+                level = item.get("pet_level")
+                
+                if price > 0:
+                    pet_stats[pet_species_id]["prices"].append(price)
+                    pet_stats[pet_species_id]["qty"] += 1
+                    # Garder la qualité/level du premier pet trouvé (on pourrait améliorer)
+                    if pet_stats[pet_species_id]["quality"] is None:
+                        pet_stats[pet_species_id]["quality"] = quality
+                        pet_stats[pet_species_id]["level"] = level
+        
+        # Enregistrer les prix des pets
+        for pet_id, stats in pet_stats.items():
+            prices = stats["prices"]
+            if prices:
+                min_price = min(prices)
+                avg_price = sum(prices) / len(prices)
+                total_qty = stats["qty"]
+                
+                dm.record_pet_price(
+                    pet_id=pet_id,
+                    realm_id=realm_id,
+                    min_price=min_price,
+                    avg_price=avg_price,
+                    total_quantity=total_qty,
+                    quality_id=stats["quality"],
+                    level=stats["level"]
                 )
 
     def _sync_recipes(self, api, dm, housing_item_ids: set):
@@ -395,3 +449,78 @@ class UpdateManager:
                 continue
         
         print(f"Recipe sync complete: {recipes_found} housing recipes matched ({recipes_checked} decoration recipes checked)")
+    
+    def _sync_pets(self, api, dm):
+        """
+        Synchronise la liste des pets depuis l'API Blizzard.
+        Récupère tous les pets tradables avec leurs détails (source, type, icône).
+        """
+        try:
+            self.status_message = "Récupération de la liste des pets..."
+            pets_index = api.get_pets_index()
+            total_pets = len(pets_index)
+            print(f"Found {total_pets} pets in API")
+            
+            synced_count = 0
+            for i, pet_ref in enumerate(pets_index):
+                if self._stop_event.is_set():
+                    return
+                
+                pet_id = pet_ref.get("id")
+                if not pet_id:
+                    continue
+                
+                if i % 50 == 0:
+                    self.status_message = f"Synchronisation pets: {i}/{total_pets}"
+                
+                try:
+                    # Récupérer les détails du pet
+                    pet_details = api.get_pet_details(pet_id)
+                    if not pet_details:
+                        continue
+                    
+                    # Ne garder que les pets tradables
+                    if not pet_details.get("is_tradable", False):
+                        continue
+                    
+                    # Sauvegarder le pet
+                    dm.save_pet(
+                        pet_id=pet_id,
+                        name=pet_details.get("name", ""),
+                        icon_url=pet_details.get("icon_url"),
+                        source=pet_details.get("source", ""),
+                        creature_type=pet_details.get("creature_type", ""),
+                        creature_id=pet_details.get("creature_id"),
+                        is_tradable=True
+                    )
+                    synced_count += 1
+                    
+                except Exception as e:
+                    continue
+            
+            print(f"Pet sync complete: {synced_count} tradable pets synced")
+            
+        except Exception as e:
+            print(f"Error syncing pets: {e}")
+    
+    def _fetch_pet_icons(self, api, dm):
+        """Récupère les icônes manquantes pour les pets"""
+        pets_without_icons = dm.get_pets_without_icons(limit=100)
+        
+        for pet in pets_without_icons:
+            if self._stop_event.is_set():
+                return
+            
+            try:
+                pet_id = pet["pet_id"]
+                icon_data = api.get_pet_media(pet_id)
+                
+                if icon_data:
+                    assets = icon_data.get("assets", [])
+                    for asset in assets:
+                        if asset.get("key") == "icon":
+                            icon_url = asset.get("value")
+                            dm.update_pet_icon(pet_id, icon_url)
+                            break
+            except Exception:
+                continue

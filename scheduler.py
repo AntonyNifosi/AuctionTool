@@ -36,6 +36,7 @@ def run_market_scan():
         logger.info("🧹 Nettoyage des données anciennes...")
         dm = get_data_manager()
         dm.cleanup_old_data(days=7)
+        dm.cleanup_old_pet_data(days=7)
         
         logger.info("✅ Scan du marché terminé avec succès!")
         

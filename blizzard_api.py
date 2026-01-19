@@ -340,6 +340,78 @@ class BlizzardAPI:
             return self._make_request(f"/data/wow/media/recipe/{recipe_id}", STATIC_NAMESPACE)
         except BlizzardAPIError:
             return {}
+    
+    # ========== PET METHODS ==========
+    
+    def get_pets_index(self) -> List[Dict]:
+        """
+        Récupère la liste de tous les pets du jeu
+        """
+        data = self._make_request("/data/wow/pet/index", STATIC_NAMESPACE)
+        return data.get("pets", [])
+    
+    def get_pet_details(self, pet_id: int) -> Dict:
+        """
+        Récupère les détails d'un pet (nom, source, type créature, etc.)
+        """
+        try:
+            data = self._make_request(f"/data/wow/pet/{pet_id}", STATIC_NAMESPACE)
+            
+            # Extraire les infos utiles
+            name = data.get("name", "")
+            if isinstance(name, dict):
+                name = name.get("fr_FR") or name.get("en_US") or ""
+            
+            # Source: comment obtenir le pet
+            source = data.get("source", {})
+            source_name = source.get("name", "") if source else ""
+            if isinstance(source_name, dict):
+                source_name = source_name.get("fr_FR") or source_name.get("en_US") or ""
+            
+            # Type de créature
+            creature_type = data.get("battle_pet_type", {})
+            type_name = creature_type.get("name", "") if creature_type else ""
+            if isinstance(type_name, dict):
+                type_name = type_name.get("fr_FR") or type_name.get("en_US") or ""
+            
+            # Est-ce tradable?
+            is_tradable = data.get("is_tradable", False)
+            
+            # Creature ID (pour le lien wowhead npc)
+            creature = data.get("creature", {})
+            creature_id = creature.get("id") if creature else None
+            
+            # Icône
+            icon_url = None
+            media = data.get("media", {})
+            if media and "key" in media:
+                # Récupérer l'icône
+                icon_data = self.get_pet_media(pet_id)
+                if icon_data:
+                    assets = icon_data.get("assets", [])
+                    for asset in assets:
+                        if asset.get("key") == "icon":
+                            icon_url = asset.get("value")
+                            break
+            
+            return {
+                "id": pet_id,
+                "name": name,
+                "source": source_name,
+                "creature_type": type_name,
+                "is_tradable": is_tradable,
+                "creature_id": creature_id,
+                "icon_url": icon_url
+            }
+        except BlizzardAPIError:
+            return {}
+    
+    def get_pet_media(self, pet_id: int) -> Dict:
+        """Récupère les médias (icône) d'un pet"""
+        try:
+            return self._make_request(f"/data/wow/media/pet/{pet_id}", STATIC_NAMESPACE)
+        except BlizzardAPIError:
+            return {}
 
 
 # Instance singleton pour faciliter l'utilisation

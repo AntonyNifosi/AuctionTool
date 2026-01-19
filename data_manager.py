@@ -140,6 +140,48 @@ class DataManager:
         except sqlite3.OperationalError:
             pass
         
+        # Table pour stocker les pets (battle pets)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pets (
+                pet_id INTEGER PRIMARY KEY,
+                name TEXT,
+                icon_url TEXT,
+                source TEXT,
+                creature_type TEXT,
+                creature_id INTEGER,
+                is_tradable BOOLEAN,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Migration: ajouter creature_id si la colonne n'existe pas
+        try:
+            cursor.execute("SELECT creature_id FROM pets LIMIT 1")
+        except:
+            cursor.execute("ALTER TABLE pets ADD COLUMN creature_id INTEGER")
+        
+        # Table pour l'historique des prix des pets
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pet_price_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pet_id INTEGER NOT NULL,
+                realm_id INTEGER NOT NULL,
+                quality_id INTEGER,
+                level INTEGER,
+                min_price INTEGER,
+                avg_price REAL,
+                total_quantity INTEGER,
+                recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (pet_id) REFERENCES pets(pet_id)
+            )
+        """)
+        
+        # Index pour accélérer les lookups pets
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_pet_price_realm 
+            ON pet_price_history(pet_id, realm_id)
+        """)
+        
         conn.commit()
         conn.close()
     
@@ -1035,6 +1077,155 @@ class DataManager:
         if row:
             return {"min_price": row["min_price"], "avg_price": row["avg_price"]}
         return None
+    
+    # ========== PET METHODS ==========
+    
+    def save_pet(self, pet_id: int, name: str, icon_url: str = None, 
+                 source: str = None, creature_type: str = None, creature_id: int = None, is_tradable: bool = True):
+        """Sauvegarde ou met à jour un pet"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO pets 
+            (pet_id, name, icon_url, source, creature_type, creature_id, is_tradable)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (pet_id, name, icon_url, source, creature_type, creature_id, is_tradable))
+        
+        conn.commit()
+        conn.close()
+    
+    def get_pets(self) -> List[Dict]:
+        """Récupère tous les pets"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT pet_id, name, icon_url, source, creature_type, creature_id, is_tradable
+            FROM pets
+            ORDER BY name
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+    
+    def get_pet_ids(self) -> set:
+        """Récupère les IDs de tous les pets connus"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT pet_id FROM pets")
+        rows = cursor.fetchall()
+        conn.close()
+        return {row["pet_id"] for row in rows}
+    
+    def has_pets_synced(self) -> bool:
+        """Vérifie si des pets ont déjà été synchronisés"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) as count FROM pets")
+        row = cursor.fetchone()
+        conn.close()
+        return row["count"] > 0
+    
+    def record_pet_price(self, pet_id: int, realm_id: int, min_price: int,
+                         avg_price: float, total_quantity: int, 
+                         quality_id: int = None, level: int = None):
+        """Enregistre les données de prix pour un pet sur un serveur"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT INTO pet_price_history 
+            (pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level))
+        
+        conn.commit()
+        conn.close()
+    
+    def get_pets_summary(self, realm_id: int) -> List[Dict]:
+        """Récupère un résumé de tous les pets avec leurs prix pour un serveur"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # Récupérer les derniers prix pour chaque pet sur ce serveur
+        cursor.execute("""
+            SELECT p.pet_id, p.name, p.icon_url, p.source, p.creature_type, p.creature_id,
+                   ph.min_price, ph.total_quantity, ph.quality_id, ph.level
+            FROM pets p
+            LEFT JOIN (
+                SELECT pet_id, min_price, total_quantity, quality_id, level,
+                       ROW_NUMBER() OVER (PARTITION BY pet_id ORDER BY recorded_at DESC) as rn
+                FROM pet_price_history
+                WHERE realm_id = ?
+            ) ph ON p.pet_id = ph.pet_id AND ph.rn = 1
+            WHERE p.is_tradable = 1
+            ORDER BY p.name
+        """, (realm_id,))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return [dict(row) for row in rows]
+    
+    def get_pet_all_realms_prices(self, pet_id: int) -> List[Dict]:
+        """Récupère les derniers prix d'un pet sur tous les serveurs"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT r.realm_id, r.name as realm_name, r.population, r.region,
+                   ph.min_price, ph.total_quantity, ph.quality_id, ph.level, ph.recorded_at
+            FROM realms r
+            LEFT JOIN (
+                SELECT realm_id, min_price, total_quantity, quality_id, level, recorded_at,
+                       ROW_NUMBER() OVER (PARTITION BY realm_id ORDER BY recorded_at DESC) as rn
+                FROM pet_price_history
+                WHERE pet_id = ?
+            ) ph ON r.realm_id = ph.realm_id AND ph.rn = 1
+            ORDER BY CASE WHEN ph.min_price IS NULL THEN 1 ELSE 0 END, ph.min_price ASC
+        """, (pet_id,))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return [dict(row) for row in rows]
+    
+    def get_pets_without_icons(self, limit: int = 50) -> List[Dict]:
+        """Récupère les pets sans icône"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT pet_id, name FROM pets 
+            WHERE icon_url IS NULL OR icon_url = ''
+            LIMIT ?
+        """, (limit,))
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+    
+    def update_pet_icon(self, pet_id: int, icon_url: str):
+        """Met à jour l'icône d'un pet"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE pets SET icon_url = ? WHERE pet_id = ?
+        """, (icon_url, pet_id))
+        conn.commit()
+        conn.close()
+    
+    def cleanup_old_pet_data(self, days: int = 7):
+        """Supprime les données de prix pets de plus de X jours"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cutoff = datetime.now() - timedelta(days=days)
+        
+        cursor.execute("""
+            DELETE FROM pet_price_history WHERE recorded_at < ?
+        """, (cutoff,))
+        
+        conn.commit()
+        conn.close()
 
 
 # Instance singleton
