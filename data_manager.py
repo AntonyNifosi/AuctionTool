@@ -487,51 +487,62 @@ class DataManager:
         # Note: SQLite 'now' est UTC.
         
         query = """
-            WITH latest_prices AS (
-                SELECT 
-                    item_id, min_price, avg_price, total_quantity, auction_count, recorded_at,
-                    ROW_NUMBER() OVER (PARTITION BY item_id ORDER BY recorded_at DESC) as rn
-                FROM price_history
-                WHERE realm_id = ?
-            ),
-            historical_stats AS (
-                SELECT 
-                    item_id,
-                    AVG(avg_price) as hist_avg_price
-                FROM price_history
-                WHERE realm_id = ? AND recorded_at >= datetime('now', '-21 days')
-                GROUP BY item_id
-            ),
-            week_start_volume AS (
-                SELECT 
-                    item_id, total_quantity as start_quantity,
-                    ROW_NUMBER() OVER (PARTITION BY item_id ORDER BY recorded_at ASC) as rn
-                FROM price_history
-                WHERE realm_id = ? AND recorded_at >= datetime('now', '-7 days')
-            )
+        WITH latest_prices AS (
+            -- Prix le plus récent (pour recorded_at)
             SELECT 
-                hi.item_id,
-                hi.name,
-                hi.icon_url,
-                hi.category,
-                lp.min_price,
-                lp.avg_price,
-                lp.total_quantity,
-                lp.auction_count,
-                lp.recorded_at,
-                hs.hist_avg_price,
-                wsv.start_quantity,
-                r.recipe_id,
-                r.profession_name
-            FROM housing_items hi
-            LEFT JOIN latest_prices lp ON hi.item_id = lp.item_id AND lp.rn = 1
-            LEFT JOIN historical_stats hs ON hi.item_id = hs.item_id
-            LEFT JOIN week_start_volume wsv ON hi.item_id = wsv.item_id AND wsv.rn = 1
-            LEFT JOIN recipes r ON hi.item_id = r.crafted_item_id
-            ORDER BY hi.name
-        """
+                item_id, min_price, avg_price, total_quantity, auction_count, recorded_at,
+                ROW_NUMBER() OVER (PARTITION BY item_id ORDER BY recorded_at DESC) as rn
+            FROM price_history
+            WHERE realm_id = ?
+        ),
+        min_price_3days AS (
+            -- Prix minimum sur les 3 derniers jours (plus représentatif)
+            SELECT 
+                item_id,
+                MIN(min_price) as real_min_price
+            FROM price_history
+            WHERE realm_id = ? AND recorded_at >= datetime('now', '-3 days') AND min_price > 0
+            GROUP BY item_id
+        ),
+        historical_stats AS (
+            SELECT 
+                item_id,
+                AVG(avg_price) as hist_avg_price
+            FROM price_history
+            WHERE realm_id = ? AND recorded_at >= datetime('now', '-21 days')
+            GROUP BY item_id
+        ),
+        week_start_volume AS (
+            SELECT 
+                item_id, total_quantity as start_quantity,
+                ROW_NUMBER() OVER (PARTITION BY item_id ORDER BY recorded_at ASC) as rn
+            FROM price_history
+            WHERE realm_id = ? AND recorded_at >= datetime('now', '-7 days')
+        )
+        SELECT 
+            hi.item_id,
+            hi.name,
+            hi.icon_url,
+            hi.category,
+            COALESCE(mp3.real_min_price, lp.min_price) as min_price,
+            lp.avg_price,
+            lp.total_quantity,
+            lp.auction_count,
+            lp.recorded_at,
+            hs.hist_avg_price,
+            wsv.start_quantity,
+            r.recipe_id,
+            r.profession_name
+        FROM housing_items hi
+        LEFT JOIN latest_prices lp ON hi.item_id = lp.item_id AND lp.rn = 1
+        LEFT JOIN min_price_3days mp3 ON hi.item_id = mp3.item_id
+        LEFT JOIN historical_stats hs ON hi.item_id = hs.item_id
+        LEFT JOIN week_start_volume wsv ON hi.item_id = wsv.item_id AND wsv.rn = 1
+        LEFT JOIN recipes r ON hi.item_id = r.crafted_item_id
+        ORDER BY hi.name
+    """
         
-        cursor.execute(query, (realm_id, realm_id, realm_id))
+        cursor.execute(query, (realm_id, realm_id, realm_id, realm_id))
         rows = cursor.fetchall()
         conn.close()
         
@@ -848,9 +859,21 @@ class DataManager:
         
         recipe_items = cursor.fetchall()
         
-        # Récupérer les prix de vente actuels sur ce serveur
+        # Récupérer les prix de vente minimum sur les 3 derniers jours (plus représentatif)
         cursor.execute("""
-            SELECT item_id, min_price, total_quantity
+            SELECT item_id, MIN(min_price) as min_price
+            FROM price_history
+            WHERE realm_id = ? AND recorded_at >= datetime('now', '-3 days') AND min_price > 0
+            GROUP BY item_id
+        """, (realm_id,))
+        
+        sell_prices = {}
+        for row in cursor.fetchall():
+            sell_prices[row["item_id"]] = row["min_price"]
+        
+        # Récupérer le stock actuel (dernière valeur)
+        cursor.execute("""
+            SELECT item_id, total_quantity
             FROM price_history
             WHERE realm_id = ?
             AND (item_id, recorded_at) IN (
@@ -861,10 +884,8 @@ class DataManager:
             )
         """, (realm_id, realm_id))
         
-        sell_prices = {}
         current_stock = {}
         for row in cursor.fetchall():
-            sell_prices[row["item_id"]] = row["min_price"]
             current_stock[row["item_id"]] = row["total_quantity"] or 0
         
         # Récupérer le stock au début de la semaine (il y a 7 jours)

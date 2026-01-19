@@ -422,22 +422,61 @@ def render_sidebar():
     # Sélecteur de page avec persistence via query params
     st.sidebar.markdown("## 📑 Navigation")
     
-    pages = ["🏠 Items Housing", "💰 Profits Craft", "🐾 Pets", "👤 Ma Collection"]
+    # Grouper les pages par catégorie
+    housing_pages = ["🏠 Items Housing", "💰 Profits Craft"]
+    pets_pages = ["🐾 Pets", "👤 Ma Collection"]
+    all_pages = housing_pages + pets_pages
     
-    # Récupérer la page depuis les query params (pour persistence au refresh)
-    query_page = st.query_params.get("page", None)
-    default_index = 0
-    if query_page:
-        page_map = {"housing": 0, "craft": 1, "pets": 2, "collection": 3}
-        default_index = page_map.get(query_page, 0)
+    # Récupérer la page depuis les query params seulement si pas déjà en session
+    if "current_page" not in st.session_state:
+        query_page = st.query_params.get("page", None)
+        if query_page:
+            page_map = {"housing": "🏠 Items Housing", "craft": "💰 Profits Craft", "pets": "🐾 Pets", "collection": "👤 Ma Collection"}
+            st.session_state.current_page = page_map.get(query_page, "🏠 Items Housing")
+        else:
+            st.session_state.current_page = "🏠 Items Housing"
     
-    page = st.sidebar.radio(
-        "Page",
-        pages,
-        index=default_index,
-        label_visibility="collapsed"
+    current_page = st.session_state.get("current_page", "🏠 Items Housing")
+    
+    # Section Housing
+    st.sidebar.markdown("#### 🏡 Housing")
+    housing_index = housing_pages.index(current_page) if current_page in housing_pages else None
+    housing_page = st.sidebar.radio(
+        "Housing",
+        housing_pages,
+        index=housing_index if housing_index is not None else 0,
+        label_visibility="collapsed",
+        key="housing_page_selector"
     )
-    st.session_state.current_page = page
+    
+    # Section Pets
+    st.sidebar.markdown("#### 🐾 Pets")
+    pets_index = pets_pages.index(current_page) if current_page in pets_pages else None
+    pets_page = st.sidebar.radio(
+        "Pets",
+        pets_pages,
+        index=pets_index if pets_index is not None else 0,
+        label_visibility="collapsed",
+        key="pets_page_selector"
+    )
+    
+    # Déterminer quelle page est réellement sélectionnée
+    if current_page in housing_pages:
+        # L'utilisateur était sur Housing, vérifier s'il a cliqué sur Pets
+        if pets_page != pets_pages[pets_index if pets_index is not None else 0] or (pets_index is None and current_page not in pets_pages):
+            page = pets_page
+        else:
+            page = housing_page
+    else:
+        # L'utilisateur était sur Pets, vérifier s'il a cliqué sur Housing
+        if housing_page != housing_pages[housing_index if housing_index is not None else 0] or (housing_index is None and current_page not in housing_pages):
+            page = housing_page
+        else:
+            page = pets_page
+    
+    # Mettre à jour la session et les query params si changement
+    if page != st.session_state.current_page:
+        st.session_state.current_page = page
     
     # Sauvegarder dans query params pour persistence
     page_keys = {"🏠 Items Housing": "housing", "💰 Profits Craft": "craft", "🐾 Pets": "pets", "👤 Ma Collection": "collection"}
@@ -663,6 +702,7 @@ def render_profit_page(realm_id: int):
     
     st.markdown("## 💰 Analyse des Profits de Craft")
     st.markdown("Identifiez les items les plus rentables à crafter sur votre serveur.")
+    st.caption("💡 Le prix de vente affiché est le **prix minimum observé sur les 3 derniers jours**")
     
     # Liste des professions disponibles
     PROFESSIONS = {
@@ -864,83 +904,51 @@ def render_profit_page(realm_id: int):
         selected_item_id = int(df.iloc[selected_row_index]["Item ID"])  # Ensure int
         selected_item_name = df.iloc[selected_row_index]["Nom"]
         
+        # Détails de l'item (mêmes sections que la page Housing)
         st.markdown("---")
-        st.markdown(f"### 🏆 Meilleurs serveurs pour vendre: **{selected_item_name}**")
+        st.markdown(f"### 📊 Détails de l'item: **{selected_item_name}**")
         
-        realm_profits = dm.get_item_profit_by_realm(selected_item_id)
+        # Créer un dict item compatible avec les fonctions de détails
+        selected_item_data = {
+            "item_id": selected_item_id,
+            "name": selected_item_name,
+            "icon_url": df.iloc[selected_row_index].get("Icon") if "Icon" in df.columns else None,
+        }
         
-        if realm_profits:
-            # Filtrer pour ne garder que les serveurs avec un profit calculable
-            valid_realms = [r for r in realm_profits if r.get("profit") is not None]
-            
-            if not valid_realms:
-                st.warning("⚠️ Le coût de craft ne peut pas être calculé pour cet item (composants sans prix disponible). Seul le prix de vente est affiché.")
-                # Afficher quand même les prix de vente
-                top_realms = sorted(realm_profits, key=lambda x: x.get("sell_price") or 0, reverse=True)[:10]
-            else:
-                # Top 10 serveurs avec profit valide
-                top_realms = valid_realms[:10]
-            
-            # Calculer le score max pour le pourcentage
-            max_score = max(r.get("score") or 0 for r in top_realms) if top_realms else 1
-            if max_score == 0:
-                max_score = 1
-            
-            # Afficher le top 3 en cartes visuelles (seulement si profits calculables)
-            if len(top_realms) >= 3 and valid_realms:
-                st.markdown("**Score basé sur : Profit × Volume**")
-                col1, col2, col3 = st.columns(3)
-                
-                medals_emoji = ["🏆", "🥈", "🥉"]
-                ranks = ["1er", "2ème", "3ème"]
-                
-                for i, (col, rank) in enumerate(zip([col1, col2, col3], ranks)):
-                    r = top_realms[i]
-                    score_pct = int((r.get("score") or 0) / max_score * 100)
-                    realm_name = r["realm_name"]
-                    # Tronquer le nom si trop long
-                    if len(realm_name) > 25:
-                        realm_name = realm_name[:22] + "..."
-                    
-                    with col:
-                        st.markdown(f"""
-                        <div style="text-align: center; padding: 10px; background: rgba(255,209,0,0.1); border-radius: 8px;">
-                            <span style="color: #888;">{medals_emoji[i]} {rank}</span><br>
-                            <strong style="font-size: 1.1em;">{realm_name}</strong><br>
-                            <span style="color: #00ff00;">↑ {score_pct}%</span>
-                        </div>
-                        """, unsafe_allow_html=True)
-                
-                st.markdown("")
-            
-            # Préparer le tableau avec score en %
-            realm_df = pd.DataFrame([
-                {
-                    "Rang": "🥇" if i == 0 else ("🥈" if i == 1 else ("🥉" if i == 2 else f"{i+1}")),
-                    "Serveur": r["realm_name"],
-                    "Prix Vente": format_gold(r.get("sell_price")),
-                    "Profit": format_gold(r.get("profit")) if r.get("profit") else "-",
-                    "Ventes 7j": r.get("volume") or 0,
-                    "Score": f"{int((r.get('score') or 0) / max_score * 100)}%" if valid_realms else "-",
-                }
-                for i, r in enumerate(top_realms)
-            ])
-            
-            st.dataframe(
-                realm_df,
-                hide_index=True,
-                use_container_width=True,
-                column_config={
-                    "Rang": st.column_config.TextColumn("", width="small"),
-                    "Serveur": st.column_config.TextColumn("Serveur", width="medium"),
-                    "Prix Vente": st.column_config.TextColumn("Prix Vente", width="small"),
-                    "Profit": st.column_config.TextColumn("Profit", width="small"),
-                    "Ventes 7j": st.column_config.NumberColumn("Ventes 7j", width="small"),
-                    "Score": st.column_config.TextColumn("Score", width="small"),
-                }
-            )
-        else:
-            st.info("Pas de données de prix disponibles pour cet item.")
+        # Récupérer des infos supplémentaires depuis la base
+        item_info = dm.get_items_summary(realm_id)
+        for item in item_info:
+            if item["item_id"] == selected_item_id:
+                selected_item_data.update(item)
+                break
+        
+        # Onglets pour les différentes sections (même layout que page Housing)
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "📊 Prix par Serveur", 
+            "📈 Historique Prix", 
+            "📦 Volume",
+            "🏆 Meilleurs Serveurs",
+            "📉 Statistiques",
+            "🔨 Craft"
+        ])
+        
+        with tab1:
+            render_prices_by_realm(selected_item_id)
+        
+        with tab2:
+            render_price_history(selected_item_id, realm_id)
+        
+        with tab3:
+            render_volume_history(selected_item_id, realm_id)
+        
+        with tab4:
+            render_best_servers_to_sell(selected_item_id)
+        
+        with tab5:
+            render_statistics(selected_item_id, realm_id)
+        
+        with tab6:
+            render_craft_info(selected_item_id, realm_id)
 
 
 def render_item_list(realm_id: int):
@@ -951,6 +959,8 @@ def render_item_list(realm_id: int):
     if not housing_items:
         st.warning("Aucun item de housing trouvé")
         return
+    
+    st.caption("💡 Le prix affiché est le **prix minimum observé sur les 3 derniers jours**")
     
     # Récupérer le résumé avec les métriques (avec cache)
     items_summary = get_cached_items_summary(realm_id)
