@@ -427,6 +427,15 @@ def render_sidebar():
     pets_pages = ["🐾 Pets", "👤 Ma Collection"]
     all_pages = housing_pages + pets_pages
     
+    # Callbacks pour la navigation mutuellement exclusive
+    def update_housing_selection():
+        st.session_state.current_page = st.session_state.housing_page_selector
+        st.session_state.pets_page_selector = None
+
+    def update_pets_selection():
+        st.session_state.current_page = st.session_state.pets_page_selector
+        st.session_state.housing_page_selector = None
+
     # Récupérer la page depuis les query params seulement si pas déjà en session
     if "current_page" not in st.session_state:
         query_page = st.query_params.get("page", None)
@@ -438,45 +447,40 @@ def render_sidebar():
     
     current_page = st.session_state.get("current_page", "🏠 Items Housing")
     
+    # Forcer la cohérence : si on est sur une page Housing, on désélectionne Pets et vice-versa
+    if current_page in housing_pages:
+        st.session_state.pets_page_selector = None
+    elif current_page in pets_pages:
+        st.session_state.housing_page_selector = None
+    
     # Section Housing
     st.sidebar.markdown("#### 🏡 Housing")
     housing_index = housing_pages.index(current_page) if current_page in housing_pages else None
-    housing_page = st.sidebar.radio(
+    
+    st.sidebar.radio(
         "Housing",
         housing_pages,
-        index=housing_index if housing_index is not None else 0,
+        index=housing_index,
         label_visibility="collapsed",
-        key="housing_page_selector"
+        key="housing_page_selector",
+        on_change=update_housing_selection
     )
     
     # Section Pets
     st.sidebar.markdown("#### 🐾 Pets")
     pets_index = pets_pages.index(current_page) if current_page in pets_pages else None
-    pets_page = st.sidebar.radio(
+    
+    st.sidebar.radio(
         "Pets",
         pets_pages,
-        index=pets_index if pets_index is not None else 0,
+        index=pets_index,
         label_visibility="collapsed",
-        key="pets_page_selector"
+        key="pets_page_selector",
+        on_change=update_pets_selection
     )
     
-    # Déterminer quelle page est réellement sélectionnée
-    if current_page in housing_pages:
-        # L'utilisateur était sur Housing, vérifier s'il a cliqué sur Pets
-        if pets_page != pets_pages[pets_index if pets_index is not None else 0] or (pets_index is None and current_page not in pets_pages):
-            page = pets_page
-        else:
-            page = housing_page
-    else:
-        # L'utilisateur était sur Pets, vérifier s'il a cliqué sur Housing
-        if housing_page != housing_pages[housing_index if housing_index is not None else 0] or (housing_index is None and current_page not in housing_pages):
-            page = housing_page
-        else:
-            page = pets_page
-    
-    # Mettre à jour la session et les query params si changement
-    if page != st.session_state.current_page:
-        st.session_state.current_page = page
+    # La page actuelle est celle définie dans le session state par les callbacks
+    page = st.session_state.current_page
     
     # Sauvegarder dans query params pour persistence
     page_keys = {"🏠 Items Housing": "housing", "💰 Profits Craft": "craft", "🐾 Pets": "pets", "👤 Ma Collection": "collection"}
