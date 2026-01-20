@@ -157,3 +157,69 @@ async def get_pet_detail(pet_id: int, realm_id: int = Query(...)):
         "volume_change": 0, 
         "trend": 0 
     }
+
+
+@router.get("/{pet_id}/best-servers")
+async def get_pet_best_servers(pet_id: int, days: int = Query(7, ge=1, le=30)):
+    """Get best servers to sell this pet with scoring"""
+    dm = get_data_manager()
+    
+    # Get all realm prices for this pet
+    realm_prices = dm.get_pet_all_realms_prices(pet_id) if hasattr(dm, 'get_pet_all_realms_prices') else []
+    
+    # Filter out servers without price and Russian servers
+    servers = [r for r in realm_prices if r.get("min_price") and r.get("region") != "ru_RU"]
+    
+    if not servers:
+        return {"pet_id": pet_id, "servers": []}
+    
+    # Population scoring
+    population_scores = {
+        "FULL": 1.0,
+        "HIGH": 0.8,
+        "MEDIUM": 0.6,
+        "LOW": 0.4,
+        "NEW_PLAYERS": 0.3,
+    }
+    
+    # Get min/max for normalization
+    prices = [s["min_price"] for s in servers]
+    quantities = [s.get("total_quantity", 0) or 0 for s in servers]
+    
+    max_price = max(prices) if prices else 1
+    min_price = min(prices) if prices else 0
+    # For pets, lower quantity = rarer = better to sell (inverse)
+    max_qty = max(quantities) if quantities else 1
+    min_qty = min(quantities) if quantities else 0
+    
+    # Calculate score for each server
+    results = []
+    for s in servers:
+        price = s["min_price"]
+        qty = s.get("total_quantity", 0) or 0
+        pop = s.get("population") or "UNKNOWN"
+        
+        # Normalize price (higher = better for selling)
+        price_norm = (price - min_price) / (max_price - min_price) if max_price != min_price else 0.5
+        
+        # Normalize quantity (lower = rarer = better for selling, so invert)
+        qty_norm = 1 - ((qty - min_qty) / (max_qty - min_qty)) if max_qty != min_qty else 0.5
+        
+        pop_score = population_scores.get(pop, 0.5)
+        
+        # Score: Prix 40%, Rareté 40%, Population 20%
+        score = (price_norm * 0.4) + (qty_norm * 0.4) + (pop_score * 0.2)
+        
+        results.append({
+            "realm_name": s.get("realm_name"),
+            "population": pop,
+            "region": s.get("region"),
+            "min_price": price,
+            "total_quantity": qty,
+            "score": round(score * 100, 1)
+        })
+    
+    # Sort by score descending
+    results.sort(key=lambda x: x["score"], reverse=True)
+    
+    return {"pet_id": pet_id, "servers": results}

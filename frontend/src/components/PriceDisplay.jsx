@@ -6,11 +6,18 @@ const SILVER_ICON = 'https://wow.zamimg.com/images/icons/money-silver.gif'
 const COPPER_ICON = 'https://wow.zamimg.com/images/icons/money-copper.gif'
 
 const coinStyle = {
-    width: 12,
-    height: 12,
-    marginLeft: 1,
-    marginRight: 3,
-    verticalAlign: 'middle'
+    width: 14, // Slightly larger for better visibility
+    height: 14,
+    marginLeft: 2,
+    marginRight: 4,
+    verticalAlign: 'middle',
+    transform: 'translateY(-1px)' // Optical alignment
+}
+
+const groupStyle = {
+    whiteSpace: 'nowrap',
+    display: 'inline-flex',
+    alignItems: 'center'
 }
 
 /**
@@ -23,22 +30,24 @@ function PriceDisplay({ value, className = '' }) {
         return <span className={`price price-na ${className}`}>N/A</span>
     }
 
+    // Main container uses flex-wrap to allow breaking ONLY between currency groups
+    // but keeps number+icon glued together via groupStyle
     return (
-        <span className={`price ${className}`}>
+        <span className={`price ${className}`} style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px' }}>
             {price.gold > 0 && (
-                <span className="price-gold">
+                <span className="price-gold" style={groupStyle}>
                     {price.gold.toLocaleString()}
                     <img src={GOLD_ICON} alt="g" style={coinStyle} />
                 </span>
             )}
             {price.silver > 0 && (
-                <span className="price-silver">
+                <span className="price-silver" style={groupStyle}>
                     {price.silver}
                     <img src={SILVER_ICON} alt="s" style={coinStyle} />
                 </span>
             )}
             {(price.copper > 0 || (price.gold === 0 && price.silver === 0)) && (
-                <span className="price-copper">
+                <span className="price-copper" style={groupStyle}>
                     {price.copper}
                     <img src={COPPER_ICON} alt="c" style={coinStyle} />
                 </span>

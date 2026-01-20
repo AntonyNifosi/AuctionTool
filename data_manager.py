@@ -324,6 +324,26 @@ class DataManager:
         
         conn.commit()
         conn.close()
+
+    def batch_record_price_data(self, price_data_list: List[Tuple]):
+        """
+        Enregistre un lot de données de prix.
+        Format: [(item_id, realm_id, min_price, avg_price, total_quantity, auction_count), ...]
+        """
+        if not price_data_list:
+            return
+            
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.executemany("""
+            INSERT INTO price_history 
+            (item_id, realm_id, min_price, avg_price, total_quantity, auction_count)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, price_data_list)
+        
+        conn.commit()
+        conn.close()
     
     def get_current_price(self, item_id: int, realm_id: int) -> Optional[Dict]:
         """Récupère le dernier prix enregistré pour un item sur un serveur"""
@@ -619,7 +639,8 @@ class DataManager:
     def get_best_servers_data(self, item_id: int, days: int = 7) -> List[Dict]:
         """
         Récupère les données pour le classement des meilleurs serveurs.
-        Calcule la différence de volume (T - T-days).
+        Calcule la différence de volume (T - T-days) et un score composite.
+        Score = (Prix × 40%) + (Volume × 40%) + (Population × 20%)
         """
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -658,6 +679,15 @@ class DataManager:
         rows = cursor.fetchall()
         conn.close()
         
+        # Population scoring
+        population_scores = {
+            "FULL": 1.0,
+            "HIGH": 0.8,
+            "MEDIUM": 0.6,
+            "LOW": 0.4,
+            "NEW_PLAYERS": 0.3,
+        }
+        
         results = []
         for row in rows:
             r = dict(row)
@@ -666,10 +696,41 @@ class DataManager:
             old = r["old_volume"] if r["old_volume"] is not None else current
             
             # Calcule du volume échangé (inversé: diminution = vente)
-            # Ex: Lundi 20 items, Dimanche 15 items -> 5 vendus (+5)
-            # Ex: Lundi 20 items, Dimanche 25 items -> 5 ajoutés (-5)
             r["volume_exchanged"] = old - current
             results.append(r)
+        
+        # Filtrer les serveurs russes et ceux sans prix
+        results = [r for r in results if r.get("min_price") and r.get("region") != "ru_RU"]
+        
+        if not results:
+            return []
+        
+        # Normalisation pour le score
+        prices = [r["min_price"] for r in results]
+        volumes = [r["volume_exchanged"] for r in results]
+        
+        max_price = max(prices) if prices else 1
+        min_price = min(prices) if prices else 0
+        max_volume = max(volumes) if volumes and max(volumes) > 0 else 1
+        min_volume = min(volumes) if volumes else 0
+        
+        # Calculer le score pour chaque serveur
+        for r in results:
+            price = r["min_price"]
+            vol = r["volume_exchanged"]
+            pop = r.get("population") or "UNKNOWN"
+            
+            # Normalisation 0-1
+            price_norm = (price - min_price) / (max_price - min_price) if max_price != min_price else 0.5
+            volume_norm = (vol - min_volume) / (max_volume - min_volume) if max_volume != min_volume else 0.5
+            pop_score = population_scores.get(pop, 0.5)
+            
+            # Score pondéré: Prix 40%, Volume 40%, Population 20%
+            score = (price_norm * 0.4) + (volume_norm * 0.4) + (pop_score * 0.2)
+            r["score"] = round(score * 100, 1)  # En pourcentage
+        
+        # Trier par score décroissant
+        results.sort(key=lambda x: x["score"], reverse=True)
             
         return results
 
@@ -1228,6 +1289,26 @@ class DataManager:
             (pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level))
+        
+        conn.commit()
+        conn.close()
+
+    def batch_record_pet_prices(self, pet_data_list: List[Tuple]):
+        """
+        Enregistre un lot de données de prix pour les pets.
+        Format: [(pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level), ...]
+        """
+        if not pet_data_list:
+            return
+            
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        cursor.executemany("""
+            INSERT INTO pet_price_history 
+            (pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, pet_data_list)
         
         conn.commit()
         conn.close()

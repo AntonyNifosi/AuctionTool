@@ -153,7 +153,13 @@ function CollectionPage() {
                             <div className="stat-label">Valeur totale</div>
                         </div>
                         <div className="stat-card">
-                            <div className="stat-icon">🪙</div>
+                            <div className="stat-icon">
+                                <img
+                                    src="https://wow.zamimg.com/images/wow/icons/large/inv_misc_coin_02.jpg"
+                                    alt="Or"
+                                    style={{ width: 32, height: 32, verticalAlign: 'middle', borderRadius: '50%' }}
+                                />
+                            </div>
                             <div className="stat-value">
                                 {Math.floor(collection.total_value / 10000).toLocaleString()}g
                             </div>

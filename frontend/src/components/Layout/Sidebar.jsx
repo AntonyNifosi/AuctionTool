@@ -30,13 +30,24 @@ function Sidebar() {
 
     const formatLastUpdate = () => {
         if (!updateStatus.lastUpdateTime) return null
-        const date = new Date(updateStatus.lastUpdateTime)
+        // API returns UTC timestamp, ensure we parse it as UTC
+        let dateStr = updateStatus.lastUpdateTime
+        if (!dateStr.endsWith('Z') && !dateStr.includes('+')) {
+            dateStr += 'Z' // Append Z to indicate UTC
+        }
+        const date = new Date(dateStr)
         const now = new Date()
         const diffMs = now - date
         const diffMin = Math.floor(diffMs / 60000)
 
+        if (diffMin < 1) return "moins d'1 min"
         if (diffMin < 60) return `${diffMin} min`
-        return `${Math.floor(diffMin / 60)}h ${diffMin % 60}min`
+
+        const hours = Math.floor(diffMin / 60)
+        const mins = diffMin % 60
+
+        if (mins === 0) return `${hours}h`
+        return `${hours}h ${mins}min`
     }
 
     return (

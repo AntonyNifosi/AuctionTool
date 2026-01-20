@@ -76,7 +76,7 @@ function ItemDetailModal({ item, realmId, onClose }) {
             quantity: h.total_quantity,
             auctions: h.auction_count
         }
-    }).reverse() || []
+    }).sort((a, b) => a.timestamp - b.timestamp) || []
 
     // Custom Tooltip for charts
     const CustomTooltip = ({ active, payload, label }) => {
@@ -104,12 +104,14 @@ function ItemDetailModal({ item, realmId, onClose }) {
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
                 <div className="modal-header">
-                    <div className="modal-title-row">
+                    <div className="modal-title-row" style={{ flexWrap: 'nowrap' }}>
                         {item.icon_url && item.icon_url !== 'NONE' && (
-                            <img src={item.icon_url} alt="" className="modal-icon" />
+                            <img src={item.icon_url} alt="" className="modal-icon" style={{ flexShrink: 0 }} />
                         )}
-                        <div>
-                            <h2 className="modal-title">📋 {item.name}</h2>
+                        <div style={{ minWidth: 0 }}>
+                            <h2 className="modal-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                📋 {item.name}
+                            </h2>
                             <span className="badge">{item.category || 'Housing'}</span>
                         </div>
                     </div>
@@ -119,7 +121,9 @@ function ItemDetailModal({ item, realmId, onClose }) {
                 {/* Metrics */}
                 <div className="stats-grid modal-metrics">
                     <div className="stat-card">
-                        <div className="stat-value"><PriceDisplay value={item.min_price} /></div>
+                        <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                            <PriceDisplay value={item.min_price} />
+                        </div>
                         <div className="stat-label">💰 Prix Minimum</div>
                     </div>
                     <div className="stat-card">
@@ -228,7 +232,13 @@ function ItemDetailModal({ item, realmId, onClose }) {
                                                     />
                                                     <YAxis
                                                         stroke="#888"
-                                                        tickFormatter={(val) => `${val}g`}
+                                                        tickFormatter={(value) => {
+                                                            if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
+                                                            if (value >= 1000) return `${(value / 1000).toFixed(0)}k`
+                                                            return value
+                                                        }}
+                                                        width={40}
+                                                        tick={{ fontSize: 11 }}
                                                     />
                                                     <Tooltip
                                                         content={<CustomTooltip />}
@@ -282,7 +292,16 @@ function ItemDetailModal({ item, realmId, onClose }) {
                                                         tick={{ fontSize: 10 }}
                                                         interval="preserveStartEnd"
                                                     />
-                                                    <YAxis stroke="#888" />
+                                                    <YAxis
+                                                        stroke="#888"
+                                                        tickFormatter={(value) => {
+                                                            if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
+                                                            if (value >= 1000) return `${(value / 1000).toFixed(0)}k`
+                                                            return value
+                                                        }}
+                                                        width={40}
+                                                        tick={{ fontSize: 11 }}
+                                                    />
                                                     <Tooltip
                                                         content={<CustomTooltip />}
                                                         cursor={{ stroke: '#666', strokeDasharray: '3 3' }}
@@ -330,18 +349,24 @@ function ItemDetailModal({ item, realmId, onClose }) {
                                                         <th>Serveur</th>
                                                         <th>Prix</th>
                                                         <th>Volume Δ</th>
+                                                        <th>Score</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     {bestServers.slice(0, 10).map((server, i) => (
-                                                        <tr key={server.realm_id}>
+                                                        <tr key={server.realm_name || i}>
                                                             <td>
                                                                 {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                                                             </td>
                                                             <td>{server.realm_name}</td>
                                                             <td><PriceDisplay value={server.min_price} /></td>
-                                                            <td className={server.volume_diff > 0 ? 'text-success' : server.volume_diff < 0 ? 'text-danger' : ''}>
-                                                                {server.volume_diff != null ? (server.volume_diff > 0 ? `+${server.volume_diff}` : server.volume_diff) : 'N/A'}
+                                                            <td className={server.volume_exchanged > 0 ? 'text-success' : server.volume_exchanged < 0 ? 'text-danger' : ''}>
+                                                                {server.volume_exchanged != null ? (server.volume_exchanged > 0 ? `+${server.volume_exchanged}` : server.volume_exchanged) : 'N/A'}
+                                                            </td>
+                                                            <td>
+                                                                <span className={`score-badge ${server.score >= 70 ? 'score-high' : server.score >= 40 ? 'score-medium' : 'score-low'}`}>
+                                                                    {server.score != null ? `${server.score}%` : '-'}
+                                                                </span>
                                                             </td>
                                                         </tr>
                                                     ))}

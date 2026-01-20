@@ -59,7 +59,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
         min_price: h.min_price / 10000,
         avg_price: h.avg_price ? h.avg_price / 10000 : null,
         quantity: h.total_quantity,
-    })).reverse() || []
+    })).sort((a, b) => a.timestamp - b.timestamp) || []
 
     // Sortable table logic
     const handleSort = (key) => {
@@ -87,8 +87,8 @@ function PetDetailModal({ pet, realmId, onClose }) {
         })
     }, [realmPrices, sortConfig])
 
-    // Best servers for buy or sell - using Streamlit-style scoring algorithm
-    // Score = (Price × 50%) + (Quantity × 40%) + (Population × 10%)
+    // Best servers for buy or sell - using consistent scoring algorithm
+    // Score = (Price × 40%) + (Quantity × 40%) + (Population × 20%)
     const bestServers = useMemo(() => {
         // Filter servers with valid prices and exclude Russian servers (like Streamlit)
         const filtered = realmPrices.filter(p => p.min_price && p.region !== 'ru_RU')
@@ -141,10 +141,10 @@ function PetDetailModal({ pet, realmId, onClose }) {
             let score
             if (bestMode === 'sell') {
                 // For selling: high price is good, high quantity means competition (bad)
-                score = (priceNorm * 0.5) + ((1 - qtyNorm) * 0.4) + (popScore * 0.1)
+                score = (priceNorm * 0.4) + ((1 - qtyNorm) * 0.4) + (popScore * 0.2)
             } else {
                 // For buying: low price is good, high quantity means more choice (good)
-                score = ((1 - priceNorm) * 0.5) + (qtyNorm * 0.4) + (popScore * 0.1)
+                score = ((1 - priceNorm) * 0.4) + (qtyNorm * 0.4) + (popScore * 0.2)
             }
 
             // Penalty if no quantity (item not available)
@@ -202,16 +202,18 @@ function PetDetailModal({ pet, realmId, onClose }) {
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
                 <div className="modal-header">
-                    <div className="modal-title-row">
+                    <div className="modal-title-row" style={{ flexWrap: 'nowrap' }}>
                         {pet.icon_url && (
-                            <img src={pet.icon_url} alt="" className="modal-icon" />
+                            <img src={pet.icon_url} alt="" className="modal-icon" style={{ flexShrink: 0 }} />
                         )}
-                        <div>
-                            <h2 className="modal-title" style={{ color: getQualityColor(pet.quality) }}>
+                        <div style={{ minWidth: 0 }}>
+                            <h2 className="modal-title" style={{ color: getQualityColor(pet.quality), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 🐾 {pet.name}
                             </h2>
-                            <span className="badge">{pet.creature_type || 'Battle Pet'}</span>
-                            {pet.level && <span className="badge" style={{ marginLeft: 8 }}>Lvl {pet.level}</span>}
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                <span className="badge">{pet.creature_type || 'Battle Pet'}</span>
+                                {pet.level && <span className="badge">Lvl {pet.level}</span>}
+                            </div>
                         </div>
                     </div>
                     <button className="modal-close" onClick={onClose}>✕</button>
@@ -220,7 +222,9 @@ function PetDetailModal({ pet, realmId, onClose }) {
                 {/* Metrics */}
                 <div className="stats-grid modal-metrics">
                     <div className="stat-card">
-                        <div className="stat-value"><PriceDisplay value={pet.min_price} /></div>
+                        <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                            <PriceDisplay value={pet.min_price} />
+                        </div>
                         <div className="stat-label">💰 Prix Minimum</div>
                     </div>
                     <div className="stat-card">
@@ -295,7 +299,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                     ) : (
                                         <>
                                             <p className="text-muted" style={{ fontSize: '0.75rem', marginBottom: 'var(--spacing-sm)' }}>
-                                                Score basé sur : Prix (50%) + Quantité (40%) + Population (10%)
+                                                Score basé sur : Prix (40%) + Quantité (40%) + Population (20%)
                                             </p>
                                             <div className="table-container" style={{ maxHeight: '400px' }}>
                                                 <table className="table">
@@ -407,7 +411,16 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                 >
                                                     <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                                                     <XAxis dataKey="date" stroke="#888" tick={{ fontSize: 12 }} />
-                                                    <YAxis stroke="#888" tickFormatter={(val) => `${val}g`} />
+                                                    <YAxis
+                                                        stroke="#888"
+                                                        tickFormatter={(value) => {
+                                                            if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
+                                                            if (value >= 1000) return `${(value / 1000).toFixed(0)}k`
+                                                            return value
+                                                        }}
+                                                        width={40}
+                                                        tick={{ fontSize: 11 }}
+                                                    />
                                                     <Tooltip
                                                         content={<CustomTooltip />}
                                                         cursor={{ stroke: '#666', strokeDasharray: '3 3' }}

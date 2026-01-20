@@ -21,6 +21,7 @@ from backend.routers import realms, items, prices, profits, pets, update, collec
 _scheduler_task = None
 _scheduler_running = False
 SCAN_INTERVAL_HOURS = 1  # Scan every hour
+AUTO_SCAN_ENABLED = True  # Re-enabled after performance optimization (batch inserts)
 
 
 async def auto_scan_scheduler():
@@ -48,7 +49,12 @@ async def auto_scan_scheduler():
                 print("[Auto-Scan] No previous scan found, starting initial scan")
             else:
                 # Check if last update was more than SCAN_INTERVAL_HOURS ago
-                hours_since_update = (datetime.now() - last_update).total_seconds() / 3600
+                # Use UTC for comparison since DB stores UTC timestamps
+                now_utc = datetime.utcnow()
+                # Ensure last_update is timezone-naive for comparison
+                if last_update.tzinfo is not None:
+                    last_update = last_update.replace(tzinfo=None)
+                hours_since_update = (now_utc - last_update).total_seconds() / 3600
                 if hours_since_update >= SCAN_INTERVAL_HOURS:
                     should_scan = True
                     print(f"[Auto-Scan] Last scan was {hours_since_update:.1f}h ago, starting new scan")
@@ -70,16 +76,19 @@ async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     global _scheduler_task, _scheduler_running
     
-    # Startup: Start the auto-scan scheduler
-    print("[Startup] Starting auto-scan scheduler...")
-    _scheduler_task = asyncio.create_task(auto_scan_scheduler())
+    # Startup: Start the auto-scan scheduler only if enabled
+    if AUTO_SCAN_ENABLED:
+        print("[Startup] Starting auto-scan scheduler...")
+        _scheduler_task = asyncio.create_task(auto_scan_scheduler())
+    else:
+        print("[Startup] Auto-scan scheduler DISABLED - use manual refresh button")
     
     yield
     
     # Shutdown: Stop the scheduler
-    print("[Shutdown] Stopping auto-scan scheduler...")
-    _scheduler_running = False
     if _scheduler_task:
+        print("[Shutdown] Stopping auto-scan scheduler...")
+        _scheduler_running = False
         _scheduler_task.cancel()
         try:
             await _scheduler_task

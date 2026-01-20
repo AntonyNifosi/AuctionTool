@@ -106,6 +106,9 @@ class UpdateManager:
                 self.progress = 0.1 + (0.9 * (i / total_realms))
                 self.current_step = i + 1
                 
+                # Log progress to console for standalone scripts
+                print(f"[{i+1}/{total_realms}] Scan: {realm_name}")
+                
                 try:
                     # Update realm info
                     dm.save_realm(
@@ -242,6 +245,8 @@ class UpdateManager:
                     item_stats[item_id]["qty"] += qty
         
         # Batch insert logic could go here, but for now loop is fine with WAL
+        # Prepare batch data
+        batch_data = []
         for item_id, stats in item_stats.items():
             prices = stats["prices"]
             if prices:
@@ -250,14 +255,14 @@ class UpdateManager:
                 total_qty = stats["qty"]
                 auction_count = len(prices)
                 
-                dm.record_price_data(
-                    item_id=item_id,
-                    realm_id=realm_id,
-                    min_price=min_price,
-                    avg_price=avg_price,
-                    total_quantity=total_qty,
-                    auction_count=auction_count
-                )
+                batch_data.append((
+                    item_id, realm_id, min_price, avg_price, 
+                    total_qty, auction_count
+                ))
+        
+        # Batch insert
+        if batch_data:
+            dm.batch_record_price_data(batch_data)
     
     def _process_pet_auctions(self, realm_id: int, auctions: List[Dict], pet_ids: set, dm):
         """Traite les enchères de pets pour un serveur"""
@@ -284,6 +289,8 @@ class UpdateManager:
                         pet_stats[pet_species_id]["level"] = level
         
         # Enregistrer les prix des pets
+        # Enregistrer les prix des pets en batch
+        batch_data = []
         for pet_id, stats in pet_stats.items():
             prices = stats["prices"]
             if prices:
@@ -291,15 +298,13 @@ class UpdateManager:
                 avg_price = sum(prices) / len(prices)
                 total_qty = stats["qty"]
                 
-                dm.record_pet_price(
-                    pet_id=pet_id,
-                    realm_id=realm_id,
-                    min_price=min_price,
-                    avg_price=avg_price,
-                    total_quantity=total_qty,
-                    quality_id=stats["quality"],
-                    level=stats["level"]
-                )
+                batch_data.append((
+                    pet_id, realm_id, min_price, avg_price,
+                    total_qty, stats["quality"], stats["level"]
+                ))
+        
+        if batch_data:
+            dm.batch_record_pet_prices(batch_data)
 
     def _sync_recipes(self, api, dm, housing_item_ids: set):
         """

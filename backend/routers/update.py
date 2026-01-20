@@ -27,9 +27,15 @@ def get_update_manager():
 async def get_update_status():
     """Get current update status"""
     mgr = get_update_manager()
-    dm = get_data_manager()
     
-    last_update = dm.get_last_price_update()
+    # Only read DB when NOT running to avoid lock contention with scan writes
+    last_update = None
+    if not mgr.is_running():
+        dm = get_data_manager()
+        last_update = dm.get_last_price_update()
+    else:
+        # Use cached value from UpdateManager
+        last_update = mgr.last_update_time
     
     return {
         "is_running": mgr.is_running(),
