@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useRealm } from '../context/RealmContext'
 import PriceDisplay from '../components/PriceDisplay'
+import ItemDetailModal from '../components/ItemDetailModal'
 import './ProfitsPage.css'
 
 const PROFESSIONS = {
@@ -19,16 +20,20 @@ function ProfitsPage() {
     const [items, setItems] = useState([])
     const [expansions, setExpansions] = useState([])
     const [loading, setLoading] = useState(true)
+    const [selectedItem, setSelectedItem] = useState(null)
 
     // Filters
     const [selectedProfessions, setSelectedProfessions] = useState([])
-    const [selectedExpansion, setSelectedExpansion] = useState('')
+    const [selectedExpansions, setSelectedExpansions] = useState([])
     const [minProfitGold, setMinProfitGold] = useState(0)
     const [minVolume, setMinVolume] = useState(0)
     const [page, setPage] = useState(1)
     const [totalPages, setTotalPages] = useState(1)
     const [total, setTotal] = useState(0)
     const pageSize = 50
+
+    // Sorting - default by profit descending
+    const [sortConfig, setSortConfig] = useState({ key: 'profit', direction: 'desc' })
 
     // Fetch profits data
     useEffect(() => {
@@ -43,14 +48,16 @@ function ProfitsPage() {
                     page: page.toString(),
                     page_size: pageSize.toString(),
                     min_profit: (minProfitGold * 10000).toString(),
-                    min_volume: minVolume.toString()
+                    min_volume: minVolume.toString(),
+                    sort_by: sortConfig.key,
+                    sort_order: sortConfig.direction
                 })
 
                 if (selectedProfessions.length > 0) {
                     params.append('professions', selectedProfessions.join(','))
                 }
-                if (selectedExpansion) {
-                    params.append('expansion', selectedExpansion)
+                if (selectedExpansions.length > 0) {
+                    params.append('expansions', selectedExpansions.join(','))
                 }
 
                 const response = await fetch(`/api/profits?${params}`)
@@ -68,7 +75,7 @@ function ProfitsPage() {
         }
 
         fetchProfits()
-    }, [selectedRealm, selectedProfessions, selectedExpansion, minProfitGold, minVolume, page])
+    }, [selectedRealm, selectedProfessions, selectedExpansions, minProfitGold, minVolume, page, sortConfig])
 
     // Fetch expansions
     useEffect(() => {
@@ -98,11 +105,35 @@ function ProfitsPage() {
         setPage(1)
     }
 
+    const toggleExpansion = (exp) => {
+        setSelectedExpansions(prev =>
+            prev.includes(exp)
+                ? prev.filter(e => e !== exp)
+                : [...prev, exp]
+        )
+        setPage(1)
+    }
+
     const getProfitIndicator = (item) => {
         if (!item.profit) return { icon: '⚪', class: '' }
         if (item.profit > 0) return { icon: '🟢', class: 'profit-positive' }
         return { icon: '🔴', class: 'profit-negative' }
     }
+
+    // Sorting logic
+    const handleSort = (key) => {
+        setSortConfig(prev => ({
+            key,
+            direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+        }))
+    }
+
+    const getSortIndicator = (key) => {
+        if (sortConfig.key !== key) return ''
+        return sortConfig.direction === 'asc' ? ' ▲' : ' ▼'
+    }
+
+    // Note: Sorting is now done server-side via API params
 
     if (!selectedRealm) {
         return (
@@ -125,7 +156,7 @@ function ProfitsPage() {
                     Identifiez les items les plus rentables à crafter sur {selectedRealm.name}
                 </p>
                 <p className="page-subtitle">
-                    💡 Le prix de vente affiché est le <strong>prix minimum observé sur les 3 derniers jours</strong>
+                    💡 La prix de vente affiché est le <strong>prix minimum observé sur les 3 derniers jours</strong> • Cliquez sur un en-tête pour trier
                 </p>
             </div>
 
@@ -148,18 +179,19 @@ function ProfitsPage() {
             </div>
 
             <div className="filter-bar">
-                <div className="filter-group">
-                    <label className="filter-label">📅 Extension</label>
-                    <select
-                        className="select"
-                        value={selectedExpansion}
-                        onChange={(e) => { setSelectedExpansion(e.target.value); setPage(1); }}
-                    >
-                        <option value="">Toutes les extensions</option>
+                <div className="filter-group" style={{ flex: 2 }}>
+                    <label className="filter-label">📅 Extensions</label>
+                    <div className="profession-chips">
                         {expansions.map((exp) => (
-                            <option key={exp} value={exp}>{exp}</option>
+                            <button
+                                key={exp}
+                                className={`chip ${selectedExpansions.includes(exp) ? 'active' : ''}`}
+                                onClick={() => toggleExpansion(exp)}
+                            >
+                                {exp}
+                            </button>
                         ))}
-                    </select>
+                    </div>
                 </div>
 
                 <div className="filter-group">
@@ -186,9 +218,10 @@ function ProfitsPage() {
                 </div>
             </div>
 
-            {/* Results */}
+            {/* Results Results */}
             <div className="results-info">
                 <span className="results-count">💰 {total.toLocaleString()} items craftables</span>
+                <span className="results-hint">💡 Cliquez sur une ligne pour voir les détails</span>
             </div>
 
             {/* Table */}
@@ -197,14 +230,30 @@ function ProfitsPage() {
                     <thead>
                         <tr>
                             <th style={{ width: 50 }}></th>
-                            <th>Nom</th>
-                            <th>Métier</th>
-                            <th>Extension</th>
-                            <th>Coût Craft</th>
-                            <th>Prix Vente</th>
-                            <th>Profit</th>
-                            <th>Marge</th>
-                            <th>Volume</th>
+                            <th onClick={() => handleSort('name')} style={{ cursor: 'pointer' }}>
+                                Nom{getSortIndicator('name')}
+                            </th>
+                            <th onClick={() => handleSort('profession_name')} style={{ cursor: 'pointer' }}>
+                                Métier{getSortIndicator('profession_name')}
+                            </th>
+                            <th onClick={() => handleSort('expansion')} style={{ cursor: 'pointer' }}>
+                                Extension{getSortIndicator('expansion')}
+                            </th>
+                            <th onClick={() => handleSort('craft_cost')} style={{ cursor: 'pointer' }}>
+                                Coût Craft{getSortIndicator('craft_cost')}
+                            </th>
+                            <th onClick={() => handleSort('sell_price')} style={{ cursor: 'pointer' }}>
+                                Prix Vente{getSortIndicator('sell_price')}
+                            </th>
+                            <th onClick={() => handleSort('profit')} style={{ cursor: 'pointer' }}>
+                                Profit{getSortIndicator('profit')}
+                            </th>
+                            <th onClick={() => handleSort('profit_margin')} style={{ cursor: 'pointer' }}>
+                                Marge{getSortIndicator('profit_margin')}
+                            </th>
+                            <th onClick={() => handleSort('volume')} style={{ cursor: 'pointer' }}>
+                                Volume{getSortIndicator('volume')}
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
@@ -226,7 +275,11 @@ function ProfitsPage() {
                             items.map((item) => {
                                 const indicator = getProfitIndicator(item)
                                 return (
-                                    <tr key={item.item_id}>
+                                    <tr
+                                        key={item.item_id}
+                                        className="clickable-row"
+                                        onClick={() => setSelectedItem(item)}
+                                    >
                                         <td>
                                             {item.icon_url && item.icon_url !== 'NONE' ? (
                                                 <img src={item.icon_url} alt="" className="item-icon" loading="lazy" />
@@ -275,6 +328,15 @@ function ProfitsPage() {
                     <button className="pagination-btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>»</button>
                     <button className="pagination-btn" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»»</button>
                 </div>
+            )}
+
+            {/* Item Detail Modal */}
+            {selectedItem && (
+                <ItemDetailModal
+                    item={selectedItem}
+                    realmId={selectedRealm.id}
+                    onClose={() => setSelectedItem(null)}
+                />
             )}
         </div>
     )

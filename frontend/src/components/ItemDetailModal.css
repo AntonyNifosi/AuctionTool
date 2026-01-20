@@ -18,8 +18,9 @@
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
-    width: 100%;
-    max-width: 900px;
+    width: 95%;
+    max-width: 1200px;
+    height: 90vh;
     max-height: 90vh;
     overflow: hidden;
     display: flex;
@@ -169,6 +170,20 @@
 
 .text-danger {
     color: var(--color-danger);
+}
+
+.custom-chart-tooltip {
+    background: rgba(0, 0, 0, 0.9);
+    border: 1px solid var(--border-color);
+    padding: var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.tooltip-date {
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 4px;
 }
 
 /* Responsive */

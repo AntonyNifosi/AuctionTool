@@ -89,24 +89,29 @@ export function formatTimeDiff(dateStr) {
 
 /**
  * Get flag URL for a region
- * @param {string} region - Region code
+ * @param {string} region - Region code (e.g., fr_FR, en_GB, eu, us)
  * @returns {string} Flag CDN URL
  */
 export function getFlagUrl(region) {
-    const mapping = {
-        'fr_FR': 'fr',
-        'en_GB': 'gb',
-        'de_DE': 'de',
-        'es_ES': 'es',
-        'it_IT': 'it',
-        'pt_PT': 'pt',
-        'ru_RU': 'ru',
-        'ko_KR': 'kr',
-        'zh_CN': 'cn',
-        'zh_TW': 'tw',
+    if (!region) return "https://flagcdn.com/24x18/un.png"
+
+    // Clean up locale (fr_FR -> frfr) and lowercase
+    const cleanLocale = region.replace(/_/g, "").toLowerCase()
+
+    let countryCode = 'eu'
+
+    // Extract country code logic similar to Streamlit app
+    if (cleanLocale.length >= 4) {
+        // ex: frfr -> fr, engb -> gb, enus -> us
+        countryCode = cleanLocale.slice(-2)
+    } else if (cleanLocale.length === 2) {
+        countryCode = cleanLocale
     }
-    const code = mapping[region] || 'eu'
-    return `https://flagcdn.com/24x18/${code}.png`
+
+    // Fix specific cases if necessary
+    if (countryCode === 'uk') countryCode = 'gb' // FlagCDN uses gb for UK
+
+    return `https://flagcdn.com/24x18/${countryCode}.png`
 }
 
 /**

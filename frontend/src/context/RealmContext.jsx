@@ -5,6 +5,7 @@ const RealmContext = createContext()
 export function RealmProvider({ children }) {
     const [realms, setRealms] = useState([])
     const [selectedRealm, setSelectedRealm] = useState(null)
+    const [favoriteRealmIds, setFavoriteRealmIds] = useState([])
     const [loading, setLoading] = useState(true)
     const [updateStatus, setUpdateStatus] = useState({
         isRunning: false,
@@ -12,6 +13,18 @@ export function RealmProvider({ children }) {
         statusMessage: '',
         lastUpdateTime: null
     })
+
+    // Load favorites from localStorage on mount
+    useEffect(() => {
+        const savedFavorites = localStorage.getItem('favoriteRealmIds')
+        if (savedFavorites) {
+            try {
+                setFavoriteRealmIds(JSON.parse(savedFavorites))
+            } catch {
+                setFavoriteRealmIds([])
+            }
+        }
+    }, [])
 
     // Load realms on mount
     useEffect(() => {
@@ -69,6 +82,29 @@ export function RealmProvider({ children }) {
         localStorage.setItem('selectedRealmId', realm.id.toString())
     }
 
+    const toggleFavoriteRealm = (realmId) => {
+        setFavoriteRealmIds(prev => {
+            const newFavorites = prev.includes(realmId)
+                ? prev.filter(id => id !== realmId)
+                : [...prev, realmId]
+            localStorage.setItem('favoriteRealmIds', JSON.stringify(newFavorites))
+            return newFavorites
+        })
+    }
+
+    const isFavoriteRealm = (realmId) => {
+        return favoriteRealmIds.includes(realmId)
+    }
+
+    // Sort realms with favorites first
+    const sortedRealms = [...realms].sort((a, b) => {
+        const aFav = favoriteRealmIds.includes(a.id)
+        const bFav = favoriteRealmIds.includes(b.id)
+        if (aFav && !bFav) return -1
+        if (!aFav && bFav) return 1
+        return a.name.localeCompare(b.name)
+    })
+
     const startUpdate = async (force = false) => {
         try {
             const params = new URLSearchParams({ force: force.toString() })
@@ -86,13 +122,16 @@ export function RealmProvider({ children }) {
 
     return (
         <RealmContext.Provider value={{
-            realms,
+            realms: sortedRealms,
             selectedRealm,
             selectRealm,
             loading,
             updateStatus,
             startUpdate,
-            refreshStatus: fetchUpdateStatus
+            refreshStatus: fetchUpdateStatus,
+            favoriteRealmIds,
+            toggleFavoriteRealm,
+            isFavoriteRealm
         }}>
             {children}
         </RealmContext.Provider>

@@ -72,21 +72,20 @@ async def get_items(
         ]
     
     # Sorting
+    # Note: None values should ALWAYS be at the end (least interesting)
     reverse = sort_order == "desc"
     
+    def sort_with_none_at_end(items_list, key_field, rev):
+        """Sort items with None values always at the end"""
+        with_value = [i for i in items_list if i.get(key_field) is not None]
+        without_value = [i for i in items_list if i.get(key_field) is None]
+        sorted_with = sorted(with_value, key=lambda x: x.get(key_field) or 0, reverse=rev)
+        return sorted_with + without_value
+    
     if sort_by == "min_price":
-        # Put None values at the end
-        filtered_items = sorted(
-            filtered_items,
-            key=lambda x: (x.get("min_price") is None, x.get("min_price") or 0),
-            reverse=reverse
-        )
+        filtered_items = sort_with_none_at_end(filtered_items, "min_price", reverse)
     elif sort_by == "trend":
-        filtered_items = sorted(
-            filtered_items,
-            key=lambda x: (x.get("trend") is None, x.get("trend") or 0),
-            reverse=reverse
-        )
+        filtered_items = sort_with_none_at_end(filtered_items, "trend", reverse)
     else:  # Default: name
         filtered_items = sorted(
             filtered_items,

@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useRealm } from '../context/RealmContext'
 import PriceDisplay from '../components/PriceDisplay'
+import PetDetailModal from '../components/PetDetailModal'
 
 function PetsPage() {
     const { selectedRealm } = useRealm()
     const [pets, setPets] = useState([])
     const [loading, setLoading] = useState(true)
+    const [selectedPet, setSelectedPet] = useState(null)
 
     // Filters
     const [search, setSearch] = useState('')
@@ -14,6 +16,9 @@ function PetsPage() {
     const [totalPages, setTotalPages] = useState(1)
     const [total, setTotal] = useState(0)
     const pageSize = 50
+
+    // Sorting - default by price descending (highest first)
+    const [sortConfig, setSortConfig] = useState({ key: 'min_price', direction: 'desc' })
 
     useEffect(() => {
         if (!selectedRealm) return
@@ -26,7 +31,9 @@ function PetsPage() {
                     realm_id: selectedRealm.id,
                     page: page.toString(),
                     page_size: pageSize.toString(),
-                    tradable_only: tradableOnly.toString()
+                    tradable_only: tradableOnly.toString(),
+                    sort_by: sortConfig.key,
+                    sort_order: sortConfig.direction
                 })
 
                 if (search) params.append('search', search)
@@ -46,7 +53,7 @@ function PetsPage() {
         }
 
         fetchPets()
-    }, [selectedRealm, search, tradableOnly, page])
+    }, [selectedRealm, search, tradableOnly, page, sortConfig])
 
     const getQualityColor = (quality) => {
         const colors = {
@@ -59,6 +66,21 @@ function PetsPage() {
         }
         return colors[quality?.toLowerCase()] || colors.common
     }
+
+    // Sorting logic
+    const handleSort = (key) => {
+        setSortConfig(prev => ({
+            key,
+            direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+        }))
+    }
+
+    const getSortIndicator = (key) => {
+        if (sortConfig.key !== key) return ''
+        return sortConfig.direction === 'asc' ? ' ▲' : ' ▼'
+    }
+
+    // Note: Sorting is now done server-side via API params
 
     if (!selectedRealm) {
         return (
@@ -80,6 +102,9 @@ function PetsPage() {
                 <p className="page-subtitle">
                     Prix des familiers par serveur
                 </p>
+                <p className="page-subtitle">
+                    💡 Cliquez sur un pet pour voir les détails • Cliquez sur un en-tête pour trier
+                </p>
             </div>
 
             {/* Filters */}
@@ -97,7 +122,7 @@ function PetsPage() {
 
                 <div className="filter-group">
                     <label className="filter-label">💱 Options</label>
-                    <label className="checkbox-label">
+                    <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', height: '42px', cursor: 'pointer' }}>
                         <input
                             type="checkbox"
                             checked={tradableOnly}
@@ -111,6 +136,9 @@ function PetsPage() {
             {/* Results */}
             <div className="results-info">
                 <span className="results-count">🐾 {total.toLocaleString()} pets</span>
+                <span className="results-hint" style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                    💡 Cliquez sur une ligne pour voir les détails
+                </span>
             </div>
 
             {/* Table */}
@@ -119,12 +147,18 @@ function PetsPage() {
                     <thead>
                         <tr>
                             <th style={{ width: 50 }}></th>
-                            <th>Nom</th>
-                            <th>Niveau</th>
-                            <th>Qualité</th>
+                            <th onClick={() => handleSort('name')} style={{ cursor: 'pointer' }}>
+                                Nom{getSortIndicator('name')}
+                            </th>
+                            <th onClick={() => handleSort('level')} style={{ cursor: 'pointer' }}>
+                                Niveau{getSortIndicator('level')}
+                            </th>
                             <th>Type</th>
-                            <th>Prix (min)</th>
+                            <th onClick={() => handleSort('min_price')} style={{ cursor: 'pointer' }}>
+                                Prix (min){getSortIndicator('min_price')}
+                            </th>
                             <th>Échangeable</th>
+                            <th style={{ width: 50 }}>Lien</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -144,7 +178,12 @@ function PetsPage() {
                             </tr>
                         ) : (
                             pets.map((pet) => (
-                                <tr key={pet.pet_id}>
+                                <tr
+                                    key={pet.pet_id}
+                                    className="clickable-row"
+                                    onClick={() => setSelectedPet(pet)}
+                                    style={{ cursor: 'pointer' }}
+                                >
                                     <td>
                                         {pet.icon_url ? (
                                             <img src={pet.icon_url} alt="" className="item-icon" loading="lazy" />
@@ -158,17 +197,37 @@ function PetsPage() {
                                         </div>
                                     </td>
                                     <td>{pet.level || '-'}</td>
-                                    <td>
-                                        <span style={{ color: getQualityColor(pet.quality) }}>
-                                            {pet.quality || 'N/A'}
-                                        </span>
-                                    </td>
                                     <td>{pet.creature_type || 'N/A'}</td>
                                     <td>
                                         <PriceDisplay value={pet.min_price} />
                                     </td>
                                     <td>
                                         {pet.is_tradable ? '✅' : '❌'}
+                                    </td>
+                                    <td>
+                                        <a
+                                            href={`https://fr.wowhead.com/battle-pet/${pet.pet_id}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            title="Voir sur Wowhead"
+                                            className="wowhead-link"
+                                            style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: 24,
+                                                height: 24,
+                                                background: '#2b323d',
+                                                borderRadius: 4,
+                                                textDecoration: 'none',
+                                                fontSize: 12,
+                                                fontWeight: 'bold',
+                                                color: '#f9b617'
+                                            }}
+                                        >
+                                            W
+                                        </a>
                                     </td>
                                 </tr>
                             ))
@@ -186,6 +245,15 @@ function PetsPage() {
                     <button className="pagination-btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>»</button>
                     <button className="pagination-btn" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»»</button>
                 </div>
+            )}
+
+            {/* Pet Detail Modal */}
+            {selectedPet && (
+                <PetDetailModal
+                    pet={selectedPet}
+                    realmId={selectedRealm.id}
+                    onClose={() => setSelectedPet(null)}
+                />
             )}
         </div>
     )

@@ -1,4 +1,8 @@
 import { useState, useEffect } from 'react'
+import {
+    LineChart, Line, AreaChart, Area, ComposedChart, Bar,
+    XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
+} from 'recharts'
 import PriceDisplay from './PriceDisplay'
 import TrendBadge from './TrendBadge'
 import { formatTimeDiff, formatPriceString, getFlagUrl } from '../utils/formatters'
@@ -58,6 +62,42 @@ function ItemDetailModal({ item, realmId, onClose }) {
         { id: 'stats', icon: '📉', label: 'Statistiques' },
         { id: 'craft', icon: '🔨', label: 'Craft' },
     ]
+
+    // Prepare chart data with unique datetime labels
+    const chartData = itemDetail?.price_history?.map((h, index) => {
+        const dt = new Date(h.recorded_at)
+        return {
+            // Use index-based key for X-axis to ensure uniqueness
+            dateLabel: `${dt.toLocaleDateString()} ${dt.getHours()}h`,
+            date: dt.toLocaleDateString(),
+            timestamp: dt.getTime(),
+            min_price: h.min_price / 10000, // Convert to gold
+            avg_price: h.avg_price ? h.avg_price / 10000 : null,
+            quantity: h.total_quantity,
+            auctions: h.auction_count
+        }
+    }).reverse() || []
+
+    // Custom Tooltip for charts
+    const CustomTooltip = ({ active, payload, label }) => {
+        if (active && payload && payload.length) {
+            return (
+                <div className="custom-chart-tooltip">
+                    <p className="tooltip-date">{label}</p>
+                    {payload.map((p, i) => (
+                        <p key={i} style={{ color: p.color }}>
+                            {p.name}: {
+                                p.dataKey === 'min_price' || p.dataKey === 'avg_price'
+                                    ? `${p.value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}g`
+                                    : p.value.toLocaleString()
+                            }
+                        </p>
+                    ))}
+                </div>
+            )
+        }
+        return null
+    }
 
     return (
         <div className="modal-overlay" onClick={onClose}>
@@ -128,7 +168,7 @@ function ItemDetailModal({ item, realmId, onClose }) {
                                     {realmPrices.length === 0 ? (
                                         <p className="text-muted">Aucune donnée de prix disponible</p>
                                     ) : (
-                                        <div className="table-container" style={{ maxHeight: '400px' }}>
+                                        <div className="table-container" style={{ maxHeight: '500px' }}>
                                             <table className="table">
                                                 <thead>
                                                     <tr>
@@ -172,30 +212,51 @@ function ItemDetailModal({ item, realmId, onClose }) {
                             {activeTab === 'history' && (
                                 <div className="tab-content">
                                     <h3>📈 Historique des prix (21 jours)</h3>
-                                    {itemDetail?.price_history?.length > 0 ? (
-                                        <div className="chart-placeholder">
-                                            <div className="table-container" style={{ maxHeight: '400px' }}>
-                                                <table className="table">
-                                                    <thead>
-                                                        <tr>
-                                                            <th>Date</th>
-                                                            <th>Prix Min</th>
-                                                            <th>Prix Moy</th>
-                                                            <th>Enchères</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {itemDetail.price_history.map((h, i) => (
-                                                            <tr key={i}>
-                                                                <td>{new Date(h.recorded_at).toLocaleDateString()}</td>
-                                                                <td><PriceDisplay value={h.min_price} /></td>
-                                                                <td><PriceDisplay value={h.avg_price} /></td>
-                                                                <td>{h.auction_count}</td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
+                                    {chartData.length > 0 ? (
+                                        <div style={{ width: '100%', height: 400 }}>
+                                            <ResponsiveContainer>
+                                                <LineChart
+                                                    data={chartData}
+                                                    margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                                                >
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                                                    <XAxis
+                                                        dataKey="dateLabel"
+                                                        stroke="#888"
+                                                        tick={{ fontSize: 10 }}
+                                                        interval="preserveStartEnd"
+                                                    />
+                                                    <YAxis
+                                                        stroke="#888"
+                                                        tickFormatter={(val) => `${val}g`}
+                                                    />
+                                                    <Tooltip
+                                                        content={<CustomTooltip />}
+                                                        cursor={{ stroke: '#666', strokeDasharray: '3 3' }}
+                                                    />
+                                                    <Legend />
+                                                    <Line
+                                                        type="monotone"
+                                                        dataKey="min_price"
+                                                        name="Prix Min"
+                                                        stroke="#00ff00"
+                                                        strokeWidth={2}
+                                                        dot={{ r: 4, fill: '#00ff00' }}
+                                                        activeDot={{ r: 8, fill: '#00ff00', stroke: '#fff', strokeWidth: 2 }}
+                                                        connectNulls
+                                                    />
+                                                    <Line
+                                                        type="monotone"
+                                                        dataKey="avg_price"
+                                                        name="Prix Moyen"
+                                                        stroke="#FFD100"
+                                                        strokeWidth={2}
+                                                        dot={{ r: 4, fill: '#FFD100' }}
+                                                        activeDot={{ r: 8, fill: '#FFD100', stroke: '#fff', strokeWidth: 2 }}
+                                                        connectNulls
+                                                    />
+                                                </LineChart>
+                                            </ResponsiveContainer>
                                         </div>
                                     ) : (
                                         <p className="text-muted">Aucun historique disponible</p>
@@ -207,26 +268,48 @@ function ItemDetailModal({ item, realmId, onClose }) {
                             {activeTab === 'volume' && (
                                 <div className="tab-content">
                                     <h3>📦 Évolution du volume</h3>
-                                    {itemDetail?.price_history?.length > 0 ? (
-                                        <div className="table-container" style={{ maxHeight: '400px' }}>
-                                            <table className="table">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Date</th>
-                                                        <th>Quantité</th>
-                                                        <th>Enchères</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {itemDetail.price_history.map((h, i) => (
-                                                        <tr key={i}>
-                                                            <td>{new Date(h.recorded_at).toLocaleDateString()}</td>
-                                                            <td>{h.total_quantity}</td>
-                                                            <td>{h.auction_count}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
+                                    {chartData.length > 0 ? (
+                                        <div style={{ width: '100%', height: 400 }}>
+                                            <ResponsiveContainer>
+                                                <ComposedChart
+                                                    data={chartData}
+                                                    margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                                                >
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                                                    <XAxis
+                                                        dataKey="dateLabel"
+                                                        stroke="#888"
+                                                        tick={{ fontSize: 10 }}
+                                                        interval="preserveStartEnd"
+                                                    />
+                                                    <YAxis stroke="#888" />
+                                                    <Tooltip
+                                                        content={<CustomTooltip />}
+                                                        cursor={{ stroke: '#666', strokeDasharray: '3 3' }}
+                                                    />
+                                                    <Legend />
+                                                    <Area
+                                                        type="monotone"
+                                                        dataKey="quantity"
+                                                        name="Quantité totale"
+                                                        fill="#4CAF50"
+                                                        stroke="#4CAF50"
+                                                        fillOpacity={0.3}
+                                                        dot={{ r: 4, fill: '#4CAF50' }}
+                                                        activeDot={{ r: 8, fill: '#4CAF50', stroke: '#fff', strokeWidth: 2 }}
+                                                    />
+                                                    <Line
+                                                        type="monotone"
+                                                        dataKey="auctions"
+                                                        name="Nombre d'enchères"
+                                                        stroke="#FF9800"
+                                                        strokeDasharray="5 5"
+                                                        strokeWidth={2}
+                                                        dot={{ r: 4, fill: '#FF9800' }}
+                                                        activeDot={{ r: 8, fill: '#FF9800', stroke: '#fff', strokeWidth: 2 }}
+                                                    />
+                                                </ComposedChart>
+                                            </ResponsiveContainer>
                                         </div>
                                     ) : (
                                         <p className="text-muted">Aucune donnée de volume disponible</p>
@@ -239,7 +322,7 @@ function ItemDetailModal({ item, realmId, onClose }) {
                                 <div className="tab-content">
                                     <h3>🏆 Meilleurs serveurs pour vendre</h3>
                                     {bestServers.length > 0 ? (
-                                        <div className="table-container" style={{ maxHeight: '400px' }}>
+                                        <div className="table-container" style={{ maxHeight: '500px' }}>
                                             <table className="table">
                                                 <thead>
                                                     <tr>

@@ -54,10 +54,12 @@ def extract_expansion_name(tier_name: str) -> str:
 async def get_craft_profits(
     realm_id: int = Query(..., description="Realm ID"),
     professions: Optional[str] = Query(None, description="Comma-separated profession IDs"),
-    expansion: Optional[str] = Query(None, description="Filter by expansion"),
+    expansion: Optional[str] = Query(None, description="Filter by single expansion (deprecated)"),
+    expansions: Optional[str] = Query(None, description="Comma-separated expansion names"),
     min_profit: int = Query(0, ge=0, description="Minimum profit in copper"),
     min_volume: int = Query(0, ge=0, description="Minimum sales volume"),
-    sort_by: str = Query("profit", description="Sort by: profit, profit_margin, name"),
+    sort_by: str = Query("profit", description="Sort by: profit, profit_margin, name, sell_price, craft_cost"),
+    sort_order: str = Query("desc", description="Sort order: asc, desc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200)
 ):
@@ -75,11 +77,19 @@ async def get_craft_profits(
     # Get profit data
     items = dm.get_craftable_items_profit(realm_id, profession_ids)
     
-    # Filter by expansion
-    if expansion:
+    # Parse expansion list
+    expansion_list = []
+    if expansions:
+        expansion_list = [e.strip().lower() for e in expansions.split(",") if e.strip()]
+    elif expansion:
+        # Backward compatibility with single expansion
+        expansion_list = [expansion.lower()]
+    
+    # Filter by expansions
+    if expansion_list:
         items = [
             item for item in items
-            if expansion.lower() in (item.get("expansion") or "").lower()
+            if any(exp in (item.get("expansion") or "").lower() for exp in expansion_list)
         ]
     
     # Filter by minimum profit
@@ -96,14 +106,27 @@ async def get_craft_profits(
             if (item.get("volume") or 0) >= min_volume
         ]
     
-    # Sort
-    reverse = True  # Default descending for profit
+    # Sort with proper direction
+    # Note: None values should ALWAYS be at the end (least interesting)
+    reverse = sort_order == "desc"
+    
+    def sort_with_none_at_end(items_list, key_field, rev):
+        """Sort items with None values always at the end"""
+        with_value = [i for i in items_list if i.get(key_field) is not None]
+        without_value = [i for i in items_list if i.get(key_field) is None]
+        sorted_with = sorted(with_value, key=lambda x: x.get(key_field) or 0, reverse=rev)
+        return sorted_with + without_value
+    
     if sort_by == "profit":
-        items = sorted(items, key=lambda x: x.get("profit") or 0, reverse=reverse)
+        items = sort_with_none_at_end(items, "profit", reverse)
     elif sort_by == "profit_margin":
-        items = sorted(items, key=lambda x: x.get("profit_margin") or 0, reverse=reverse)
+        items = sort_with_none_at_end(items, "profit_margin", reverse)
+    elif sort_by == "sell_price":
+        items = sort_with_none_at_end(items, "min_price", reverse)
+    elif sort_by == "craft_cost":
+        items = sort_with_none_at_end(items, "craft_cost", reverse)
     elif sort_by == "name":
-        items = sorted(items, key=lambda x: (x.get("name") or "").lower())
+        items = sorted(items, key=lambda x: (x.get("name") or "").lower(), reverse=reverse)
     
     # Pagination
     total = len(items)

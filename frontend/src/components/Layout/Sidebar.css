@@ -108,6 +108,49 @@
     margin-bottom: var(--spacing-md);
 }
 
+.realm-select-row {
+    display: flex;
+    gap: var(--spacing-xs);
+    align-items: center;
+}
+
+.realm-select-row .select {
+    flex: 1;
+}
+
+.favorite-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: 1.25rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    color: var(--text-muted);
+}
+
+.favorite-btn:hover {
+    background: var(--bg-secondary);
+    border-color: var(--accent-gold);
+    color: var(--accent-gold);
+}
+
+.favorite-btn.active {
+    background: var(--accent-gold-glow);
+    border-color: var(--accent-gold);
+    color: var(--accent-gold);
+}
+
+.realm-hint {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: var(--spacing-xs);
+}
+
 .refresh-btn {
     width: 100%;
     margin-bottom: var(--spacing-md);

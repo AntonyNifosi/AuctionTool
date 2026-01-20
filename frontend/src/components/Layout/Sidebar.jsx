@@ -10,7 +10,9 @@ function Sidebar() {
         selectRealm,
         loading,
         updateStatus,
-        startUpdate
+        startUpdate,
+        toggleFavoriteRealm,
+        isFavoriteRealm
     } = useRealm()
 
     const navItems = [
@@ -71,21 +73,33 @@ function Sidebar() {
                 <div className="section-title">⚙️ Configuration</div>
                 <div className="realm-selector">
                     <label className="filter-label">🌍 Serveur</label>
-                    <select
-                        className="select"
-                        value={selectedRealm?.id || ''}
-                        onChange={(e) => {
-                            const realm = realms.find(r => r.id === parseInt(e.target.value))
-                            if (realm) selectRealm(realm)
-                        }}
-                        disabled={loading}
-                    >
-                        {realms.map((realm) => (
-                            <option key={realm.id} value={realm.id}>
-                                {realm.name}
-                            </option>
-                        ))}
-                    </select>
+                    <div className="realm-select-row">
+                        <select
+                            className="select"
+                            value={selectedRealm?.id || ''}
+                            onChange={(e) => {
+                                const realm = realms.find(r => r.id === parseInt(e.target.value))
+                                if (realm) selectRealm(realm)
+                            }}
+                            disabled={loading}
+                        >
+                            {realms.map((realm) => (
+                                <option key={realm.id} value={realm.id}>
+                                    {isFavoriteRealm(realm.id) ? '⭐ ' : ''}{realm.name}
+                                </option>
+                            ))}
+                        </select>
+                        {selectedRealm && (
+                            <button
+                                className={`favorite-btn ${isFavoriteRealm(selectedRealm.id) ? 'active' : ''}`}
+                                onClick={() => toggleFavoriteRealm(selectedRealm.id)}
+                                title={isFavoriteRealm(selectedRealm.id) ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                            >
+                                {isFavoriteRealm(selectedRealm.id) ? '⭐' : '☆'}
+                            </button>
+                        )}
+                    </div>
+                    <p className="realm-hint">💡 Les serveurs favoris apparaissent en premier</p>
                 </div>
             </div>
 
