@@ -1,15 +1,15 @@
 """
 Realms API Router
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# import sys
+# from pathlib import Path
+# sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from fastapi import APIRouter, HTTPException
 from typing import List
 
-from data_manager import get_data_manager
-from blizzard_api import get_api, BlizzardAPIError
+from ..data_manager import get_data_manager
+from ..blizzard_api import get_api, BlizzardAPIError
 from backend.schemas import RealmResponse
 
 router = APIRouter()

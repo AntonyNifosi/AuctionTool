@@ -5,7 +5,7 @@ Gère l'authentification OAuth2 et les appels aux endpoints WoW
 import requests
 import time
 from typing import Optional, Dict, List, Any
-from config import (
+from .config import (
     BLIZZARD_CLIENT_ID,
     BLIZZARD_CLIENT_SECRET,
     API_BASE_URL,

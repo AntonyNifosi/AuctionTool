@@ -1,15 +1,15 @@
 """
 Collection API Router - Fetch character pets from Battle.net
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# import sys
+# from pathlib import Path
+# sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 
-from data_manager import get_data_manager
-from blizzard_api import get_api, BlizzardAPIError
+from ..data_manager import get_data_manager
+from ..blizzard_api import get_api, BlizzardAPIError
 
 router = APIRouter()
 

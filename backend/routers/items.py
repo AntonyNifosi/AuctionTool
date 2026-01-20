@@ -1,14 +1,14 @@
 """
 Items API Router
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# import sys
+# from pathlib import Path
+# sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from fastapi import APIRouter, Query
 from typing import List, Optional
 
-from data_manager import get_data_manager
+from ..data_manager import get_data_manager
 from backend.schemas import ItemSummary, ItemListResponse
 
 router = APIRouter()

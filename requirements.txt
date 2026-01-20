@@ -1,19 +1,20 @@
-# WoW Housing Price Tracker - Dependencies
+# WoW Housing Price Tracker - Backend Dependencies
 
-# Web framework
-streamlit>=1.33.0
+# FastAPI
+fastapi>=0.109.0
+uvicorn>=0.27.0
+pydantic>=2.6.0
+python-multipart>=0.0.7
 
-# Data handling
-pandas>=2.0.0
-
-# Visualization
-plotly>=5.18.0
-
-# HTTP requests
+# HTTP & API
 requests>=2.31.0
+httpx>=0.26.0
 
-# Environment variables
+# Environment
 python-dotenv>=1.0.0
 
-# Scheduling (for scheduler.py)
-schedule>=1.2.0
+# Database (SQLite is built-in, but just in case of future extensions or ORM)
+# sqlalchemy>=2.0.0  <-- Not currently used, raw SQL is used in data_manager.py
+
+# Utilities
+# No external utils needed yet

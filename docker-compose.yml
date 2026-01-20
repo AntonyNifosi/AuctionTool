@@ -1,33 +1,22 @@
-version: '3.8'
-
 services:
-  # Application web Streamlit
-  web:
-    build: .
-    container_name: wow-housing-web
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: auction_backend
     ports:
-      - "8501:8501"
+      - "8000:8000"
     volumes:
-      - ./data:/app/data          # Base de données persistante
-      - ./.env:/app/.env:ro       # Variables d'environnement
-    environment:
-      - TZ=Europe/Paris
-    restart: unless-stopped
-    command: streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+      - ./housing_data.db:/app/housing_data.db
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: auction_frontend
+    ports:
+      - "8501:80"
     depends_on:
-      - scheduler
-
-  # Service de scan automatique
-  scheduler:
-    build: .
-    container_name: wow-housing-scheduler
-    volumes:
-      - ./data:/app/data          # Même base de données que web
-      - ./.env:/app/.env:ro       # Variables d'environnement
-    environment:
-      - TZ=Europe/Paris
-    restart: unless-stopped
-    command: python scheduler.py
-
-volumes:
-  data:
+      - backend
+    restart: always

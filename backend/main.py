@@ -9,13 +9,14 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 # Add parent directory to path to import existing modules
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add parent directory to path to import existing modules
+# sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from backend.routers import realms, items, prices, profits, pets, update, collection
+from .routers import realms, items, prices, profits, pets, update, collection
 
 # Background scheduler state
 _scheduler_task = None
@@ -30,8 +31,8 @@ async def auto_scan_scheduler():
     _scheduler_running = True
     
     # Import here to avoid circular imports
-    from backend.routers.update import get_update_manager
-    from data_manager import get_data_manager
+    from .routers.update import get_update_manager
+    from .data_manager import get_data_manager
     
     print(f"[Auto-Scan] Scheduler started - scans every {SCAN_INTERVAL_HOURS} hour(s)")
     

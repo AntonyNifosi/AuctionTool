@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict
 import traceback
 
-from blizzard_api import get_api, BlizzardAPIError
-from data_manager import get_data_manager
+from .blizzard_api import get_api, BlizzardAPIError
+from .data_manager import get_data_manager
 
 class UpdateManager:
     """

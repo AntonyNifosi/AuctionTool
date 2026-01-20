@@ -4,41 +4,33 @@
 
 # Python
 __pycache__
-*.py[cod]
-*$py.class
-*.so
+*.pyc
+*.pyo
+*.pyd
 .Python
-*.egg-info/
-.eggs/
-dist/
-build/
-
-# Virtual environments
-venv/
-.venv/
 env/
-.env.local
+venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Node
+node_modules/
+frontend/node_modules/
+.npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database (Do NOT include the DB in the image layer)
+housing_data.db
+housing_data_old.db
+*.sqlite3
 
 # IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+.vscode
+.idea
 
-# Data (will be mounted as volume)
-*.db
-data/
-
-# Logs
-*.log
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Documentation
-*.md
-!README.md
-
-# Gemini brain artifacts
-.gemini/
+# Build
+dist/
+build/
+frontend/dist/

@@ -1,15 +1,15 @@
 """
 Update API Router - Background data updates
 """
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# import sys
+# from pathlib import Path
+# sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from fastapi import APIRouter, BackgroundTasks
 from datetime import datetime
 
-from data_manager import get_data_manager
-from update_manager import UpdateManager
+from ..data_manager import get_data_manager
+from ..update_manager import UpdateManager
 
 router = APIRouter()
 

@@ -26,12 +26,18 @@ DEFAULT_LOCALE = "fr_FR"
 
 # Configuration de la base de données
 # Utilise le dossier data/ pour Docker, sinon le répertoire courant
+# Utilise le dossier data/ pour Docker, sinon le répertoire courant (parent de backend)
 import os as _os
+# Check for Docker volume mount at /app/data or local backend/data
 _data_dir = _os.path.join(_os.path.dirname(__file__), "data")
+# Check for parent dir (project root)
+_root_dir = _os.path.dirname(_os.path.dirname(__file__))
+
 if _os.path.isdir(_data_dir):
     DATABASE_PATH = _os.getenv("DATABASE_PATH", _os.path.join(_data_dir, "housing_data.db"))
 else:
-    DATABASE_PATH = _os.getenv("DATABASE_PATH", "housing_data.db")
+    # Fallback to root directory for local dev
+    DATABASE_PATH = _os.getenv("DATABASE_PATH", _os.path.join(_root_dir, "housing_data.db"))
 
 # Configuration du cache
 CACHE_DURATION_HOURS = 1  # Durée de validité du cache des auctions

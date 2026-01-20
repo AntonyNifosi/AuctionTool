@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any, Tuple
 from pathlib import Path
-from config import DATABASE_PATH, TREND_WEEKS
+from .config import DATABASE_PATH, TREND_WEEKS
 
 
 class DataManager:
