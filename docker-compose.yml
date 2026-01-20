@@ -8,6 +8,8 @@ services:
       - "8000:8000"
     volumes:
       - ./housing_data.db:/app/housing_data.db
+    env_file:
+      - .env
     restart: always
 
   frontend:

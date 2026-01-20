@@ -233,3 +233,77 @@
         display: none;
     }
 }
+
+/* =========================================
+   Table Sticky Header Fix (Overwritten)
+   ========================================= */
+
+.table-container {
+    overflow-y: auto;
+    position: relative;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    /* Establish a stacking context for the scroll container */
+    isolation: isolate;
+    z-index: 1;
+}
+
+/* The Table itself */
+.table {
+    width: 100%;
+    border-collapse: separate;
+    /* Prefer separate for sticky headers to avoid border collapse bugs */
+    border-spacing: 0;
+}
+
+/* Sticky Header */
+.table th {
+    position: sticky;
+    top: 0;
+    background-color: var(--bg-tertiary) !important;
+    z-index: 9999 !important;
+    /* Extremely high z-index */
+
+    padding: var(--spacing-sm) var(--spacing-md);
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-muted);
+    border-bottom: 2px solid var(--border-color);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    /* Strong shadow to cover content */
+}
+
+/* Table Cells */
+.table td {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+    background-clip: padding-box;
+    position: relative;
+    z-index: 1;
+    /* Keep content low */
+}
+
+.table tr:last-child td {
+    border-bottom: none;
+}
+
+/* 
+   CRITICAL FIX: 
+   Override transform on images inside table to prevent new stacking contexts 
+   that might bubble up above the sticky header.
+*/
+
+.table td img,
+.table td .price-display img,
+.table td .modal-icon {
+    transform: none !important;
+    z-index: 1 !important;
+    position: static !important;
+    /* Default positioning */
+}
+
+/* Ensure nothing inside the cell tries to be on top */
+.table td * {
+    z-index: auto;
+}

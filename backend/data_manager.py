@@ -662,20 +662,27 @@ class DataManager:
                     ROW_NUMBER() OVER (PARTITION BY realm_id ORDER BY recorded_at ASC) as rn
                 FROM price_history 
                 WHERE item_id = ? AND recorded_at >= ?
+            ),
+            MinPrice3Days AS (
+                SELECT realm_id, MIN(min_price) as min_price_3d
+                FROM price_history
+                WHERE item_id = ? AND recorded_at >= datetime('now', '-3 days')
+                GROUP BY realm_id
             )
             SELECT 
                 r.name as realm_name,
                 r.population,
                 r.region,
-                l.min_price,
+                COALESCE(mp.min_price_3d, l.min_price) as min_price, -- Use 3-day min, fallback to latest
                 l.total_quantity as current_volume,
                 o.total_quantity as old_volume
             FROM realms r
             JOIN Latest l ON r.realm_id = l.realm_id AND l.rn = 1
             LEFT JOIN Oldest o ON r.realm_id = o.realm_id AND o.rn = 1
+            LEFT JOIN MinPrice3Days mp ON r.realm_id = mp.realm_id
         """
         
-        cursor.execute(query, (item_id, item_id, start_date))
+        cursor.execute(query, (item_id, item_id, start_date, item_id))
         rows = cursor.fetchall()
         conn.close()
         
@@ -1134,18 +1141,27 @@ class DataManager:
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # Récupérer les prix de vente actuels sur tous les serveurs
+        # Récupérer les prix de vente actuels et le min price sur 3 jours
         cursor.execute("""
-            SELECT ph.realm_id, r.name as realm_name, ph.min_price, ph.total_quantity
-            FROM price_history ph
-            JOIN realms r ON ph.realm_id = r.realm_id
-            WHERE ph.item_id = ?
-            AND (ph.realm_id, ph.recorded_at) IN (
-                SELECT realm_id, MAX(recorded_at)
+            WITH Latest AS (
+                SELECT realm_id, total_quantity, min_price,
+                       ROW_NUMBER() OVER (PARTITION BY realm_id ORDER BY recorded_at DESC) as rn
                 FROM price_history
                 WHERE item_id = ?
+            ),
+            MinPrice3Days AS (
+                SELECT realm_id, MIN(min_price) as min_price_3d
+                FROM price_history
+                WHERE item_id = ? AND recorded_at >= datetime('now', '-3 days')
                 GROUP BY realm_id
             )
+            SELECT l.realm_id, r.name as realm_name, 
+                   COALESCE(mp.min_price_3d, l.min_price) as min_price, 
+                   l.total_quantity
+            FROM Latest l
+            JOIN realms r ON l.realm_id = r.realm_id
+            LEFT JOIN MinPrice3Days mp ON l.realm_id = mp.realm_id
+            WHERE l.rn = 1
         """, (item_id, item_id))
         
         realm_current = {}
@@ -1357,6 +1373,46 @@ class DataManager:
             WHERE pet_id = ? AND realm_id = ? AND recorded_at >= ?
             ORDER BY recorded_at ASC
         """, (pet_id, realm_id, since))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return [dict(row) for row in rows]
+
+    def get_pet_best_sales_candidates(self, pet_id: int, days: int = 3) -> List[Dict]:
+        """
+        Récupère les données consolidées pour les meilleures ventes de pets (prix min sur X jours).
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        start_date = datetime.now() - timedelta(days=days)
+        
+        cursor.execute("""
+            WITH Latest AS (
+                SELECT realm_id, total_quantity, min_price,
+                       ROW_NUMBER() OVER (PARTITION BY realm_id ORDER BY recorded_at DESC) as rn
+                FROM pet_price_history
+                WHERE pet_id = ?
+            ),
+            MinPriceWindow AS (
+                SELECT realm_id, MIN(min_price) as min_price_window
+                FROM pet_price_history
+                WHERE pet_id = ? AND recorded_at >= ?
+                GROUP BY realm_id
+            )
+            SELECT 
+                r.name as realm_name,
+                r.population,
+                r.region,
+                l.realm_id,
+                COALESCE(mp.min_price_window, l.min_price) as min_price,
+                l.total_quantity
+            FROM Latest l
+            JOIN realms r ON l.realm_id = r.realm_id
+            LEFT JOIN MinPriceWindow mp ON l.realm_id = mp.realm_id
+            WHERE l.rn = 1
+        """, (pet_id, pet_id, start_date))
         
         rows = cursor.fetchall()
         conn.close()
