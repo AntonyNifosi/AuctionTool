@@ -168,7 +168,8 @@ async def get_item_detail(item_id: int, realm_id: int = Query(...)):
                 "auction_count": h["auction_count"]
             }
             for h in price_history
-        ]
+        ],
+        "reagents": dm.get_recipe_reagents_details(item_id, realm_id)
     }
 
 

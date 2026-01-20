@@ -1,15 +1,24 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRealm } from '../context/RealmContext'
 import PriceDisplay from '../components/PriceDisplay'
 import './CollectionPage.css'
 
 function CollectionPage() {
-    const { realms } = useRealm()
+    const { realms, selectedRealm } = useRealm()
     const [characterName, setCharacterName] = useState('')
     const [selectedRealmSlug, setSelectedRealmSlug] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
     const [collection, setCollection] = useState(null)
+
+    // Pre-fill realm
+    useEffect(() => {
+        if (selectedRealm && !selectedRealmSlug) {
+            // Convert 'Hyjal' -> 'hyjal'
+            const slug = selectedRealm.name.toLowerCase().replace(/ /g, '-').replace(/'/g, '')
+            setSelectedRealmSlug(slug)
+        }
+    }, [selectedRealm])
 
     const handleSearch = async (e) => {
         e.preventDefault()
@@ -127,6 +136,15 @@ function CollectionPage() {
                     <p className="error-hint">
                         💡 Assurez-vous que le nom est correct et que le profil n'est pas privé dans les options Battle.net
                     </p>
+                </div>
+            )}
+
+            {/* Loading State */}
+            {loading && (
+                <div className="loading-state" style={{ textAlign: 'center', padding: '40px' }}>
+                    <div className="spinner" style={{ margin: '0 auto 20px', width: 40, height: 40, border: '4px solid rgba(255,255,255,0.1)', borderLeftColor: '#ffd100', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 500 }}>🔍 Récupération des données Battle.net...</div>
+                    <p className="text-muted" style={{ marginTop: 10 }}>Cela peut prendre quelques secondes selon la taille de votre collection.</p>
                 </div>
             )}
 

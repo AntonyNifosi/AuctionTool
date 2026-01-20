@@ -815,6 +815,60 @@ class DataManager:
         
         return [dict(row) for row in rows]
     
+    def get_recipe_reagents_details(self, item_id: int, realm_id: int) -> List[Dict]:
+        """
+        Récupère les détails des composants pour un item (icône, quantité, prix).
+        Join avec housing_items pour l'icône et price_history pour le prix actuel.
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # 1. Trouver la recette
+        recipe = self.get_recipe_for_item(item_id)
+        if not recipe:
+            conn.close()
+            return []
+            
+        recipe_id = recipe["recipe_id"]
+        
+        # 2. Récupérer les réactifs avec leurs icônes (si dispo)
+        cursor.execute("""
+            SELECT rr.reagent_item_id, rr.reagent_name, rr.quantity, hi.icon_url
+            FROM recipe_reagents rr
+            LEFT JOIN housing_items hi ON rr.reagent_item_id = hi.item_id
+            WHERE rr.recipe_id = ?
+        """, (recipe_id,))
+        
+        reagents = []
+        rows = cursor.fetchall()
+        
+        for row in rows:
+            reagent_id = row["reagent_item_id"]
+            name = row["reagent_name"]
+            quantity = row["quantity"]
+            icon_url = row["icon_url"]
+            
+            # 3. Récupérer le prix (local > régional > any)
+            price_data = None
+            if realm_id != 0:
+                price_data = self.get_current_price(reagent_id, realm_id)
+            
+            if not price_data or not price_data.get("min_price"):
+                price_data = self.get_current_price(reagent_id, 0)
+                
+            price = price_data.get("min_price") if price_data else None
+            
+            reagents.append({
+                "item_id": reagent_id,
+                "name": name,
+                "quantity": quantity,
+                "icon_url": icon_url,
+                "unit_price": price
+            })
+            
+        conn.close()
+        return reagents
+    
     def get_all_reagent_ids(self) -> set:
         """Récupère tous les IDs uniques de réactifs pour le tracking des prix"""
         conn = self._get_connection()
@@ -981,18 +1035,43 @@ class DataManager:
         # Calculer les craft costs en batch
         craft_costs = self._batch_calculate_craft_costs(realm_id)
         
-        # Construire la liste des résultats
+        # 4. Calculer Profits et Scores
         results = []
+        
+        # Variables pour normalisation
+        max_profit = 0
+        min_profit = float('inf')
+        max_volume = 0
+        min_volume = float('inf')
+        max_cost = 0
+        min_cost = float('inf')
+        
+        has_items = False
+        
+        # Première passe : Calculs de base et min/max
         for row in recipe_items:
             item_id = row["crafted_item_id"]
             craft_cost = craft_costs.get(item_id, 0)
             sell_price = sell_prices.get(item_id, 0)
             volume = traded_volume.get(item_id, 0)
             
-            # Calculer les métriques
+            # Calculs de base
             profit = (sell_price - craft_cost) if sell_price and craft_cost else None
             profit_margin = ((profit / craft_cost) * 100) if profit and craft_cost > 0 else None
-            score = (profit * volume) if profit and volume else 0
+            
+            # Mise à jour des min/max pour normalisation
+            if profit is not None and profit > 0:
+                max_profit = max(max_profit, profit)
+                min_profit = min(min_profit, profit)
+                has_items = True
+            
+            if volume > 0:
+                max_volume = max(max_volume, volume)
+                min_volume = min(min_volume, volume)
+                
+            if craft_cost > 0:
+                max_cost = max(max_cost, craft_cost)
+                min_cost = min(min_cost, craft_cost)
             
             results.append({
                 "item_id": item_id,
@@ -1007,8 +1086,38 @@ class DataManager:
                 "profit": profit,
                 "profit_margin": round(profit_margin, 1) if profit_margin else None,
                 "volume": volume,
-                "score": score,
+                # Score calculé ci-dessous
             })
+            
+        # Deuxième passe : Calcul du Score normalisé
+        for item in results:
+            score = 0
+            if item["profit"] and item["profit"] > 0 and has_items:
+                # 1. Profit Score (40%) - Higher is better
+                p_norm = 0.5
+                if max_profit > min_profit:
+                    p_norm = (item["profit"] - min_profit) / (max_profit - min_profit)
+                
+                # 2. Volume Score (40%) - Higher is better
+                v_norm = 0
+                if max_volume > min_volume:
+                    v_norm = (item["volume"] - min_volume) / (max_volume - min_volume)
+                elif item["volume"] > 0 and max_volume == min_volume:
+                    v_norm = 1.0
+                
+                # 3. Cost Score (20%) - Lower is better -> 1 - norm
+                c_norm = 0.5
+                cost = item["craft_cost"]
+                if cost and max_cost > min_cost:
+                    raw_norm = (cost - min_cost) / (max_cost - min_cost)
+                    c_norm = 1.0 - raw_norm
+                elif cost and max_cost == min_cost:
+                    c_norm = 1.0
+                
+                # Formula: 40% Profit + 40% Volume + 20% Cost
+                score = (p_norm * 0.4 + v_norm * 0.4 + c_norm * 0.2) * 100
+            
+            item["score"] = score
         
         # Trier par score décroissant
         results.sort(key=lambda x: x["score"] or 0, reverse=True)
@@ -1079,7 +1188,15 @@ class DataManager:
             volume = max(0, start - current)
             
             profit = (sell_price - craft_cost) if sell_price and craft_cost else None
-            score = (profit * volume) if profit and volume else 0
+            
+            # Penalize zero volume effectively
+            if profit and profit > 0:
+                if volume > 0:
+                    score = profit * volume
+                else:
+                    score = -1.0 # Penalized for zero volume despite potential profit
+            else:
+                score = -1000.0 # No profit or invalid data
             
             results.append({
                 "realm_id": realm_id,

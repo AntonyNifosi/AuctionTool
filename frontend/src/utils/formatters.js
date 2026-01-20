@@ -73,7 +73,12 @@ export function formatTimeDiff(dateStr) {
     if (!dateStr) return '-'
 
     try {
-        const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr
+        // Assume SQL timestamps without timezone are UTC
+        const dateArg = (typeof dateStr === 'string' && !dateStr.endsWith('Z') && !dateStr.includes('+'))
+            ? dateStr + 'Z'
+            : dateStr
+
+        const date = typeof dateArg === 'string' ? new Date(dateArg) : dateArg
         const now = new Date()
         const diffMs = now - date
         const diffSeconds = Math.floor(diffMs / 1000)

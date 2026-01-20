@@ -64,7 +64,8 @@ function ItemDetailModal({ item, realmId, onClose }) {
     ]
 
     // Prepare chart data with unique datetime labels
-    const chartData = itemDetail?.price_history?.map((h, index) => {
+    // Prepare chart data with unique datetime labels
+    const chartData = (itemDetail?.price_history || []).map((h, index) => {
         const dt = new Date(h.recorded_at)
         return {
             // Use index-based key for X-axis to ensure uniqueness
@@ -76,7 +77,7 @@ function ItemDetailModal({ item, realmId, onClose }) {
             quantity: h.total_quantity,
             auctions: h.auction_count
         }
-    }).sort((a, b) => a.timestamp - b.timestamp) || []
+    }).sort((a, b) => a.timestamp - b.timestamp)
 
     // Custom Tooltip for charts
     const CustomTooltip = ({ active, payload, label }) => {
@@ -122,21 +123,27 @@ function ItemDetailModal({ item, realmId, onClose }) {
                 <div className="stats-grid modal-metrics">
                     <div className="stat-card">
                         <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                            <PriceDisplay value={item.min_price} />
+                            <PriceDisplay value={itemDetail?.current_price ?? item.min_price} />
                         </div>
                         <div className="stat-label">💰 Prix Minimum</div>
                     </div>
                     <div className="stat-card">
-                        <div className="stat-value"><PriceDisplay value={item.avg_price} /></div>
+                        <div className="stat-value"><PriceDisplay value={itemDetail?.avg_price ?? item.avg_price} /></div>
                         <div className="stat-label">📊 Prix Moyen</div>
                     </div>
                     <div className="stat-card">
-                        <div className="stat-value"><TrendBadge value={item.trend} /></div>
+                        <div className="stat-value"><TrendBadge value={itemDetail?.trend ?? item.trend} /></div>
                         <div className="stat-label">📈 Tendance</div>
                     </div>
                     <div className="stat-card">
                         <div className="stat-value">
-                            {item.volume_change != null ? (item.volume_change > 0 ? `+${item.volume_change}` : item.volume_change) : 'N/A'}
+                            {(() => {
+                                const raw = itemDetail?.volume_change ?? item.volume_change
+                                const val = (raw && typeof raw === 'object') ? raw.change : raw
+
+                                if (val == null) return 'N/A'
+                                return val > 0 ? `+${val}` : val
+                            })()}
                         </div>
                         <div className="stat-label">📦 Volume Δ Semaine</div>
                     </div>
@@ -360,12 +367,12 @@ function ItemDetailModal({ item, realmId, onClose }) {
                                                             </td>
                                                             <td>{server.realm_name}</td>
                                                             <td><PriceDisplay value={server.min_price} /></td>
-                                                            <td className={server.volume_exchanged > 0 ? 'text-success' : server.volume_exchanged < 0 ? 'text-danger' : ''}>
-                                                                {server.volume_exchanged != null ? (server.volume_exchanged > 0 ? `+${server.volume_exchanged}` : server.volume_exchanged) : 'N/A'}
+                                                            <td className={(server.volume ?? server.volume_exchanged) > 0 ? 'text-success' : (server.volume ?? server.volume_exchanged) < 0 ? 'text-danger' : ''}>
+                                                                {(server.volume ?? server.volume_exchanged) != null ? ((server.volume ?? server.volume_exchanged) > 0 ? `+${(server.volume ?? server.volume_exchanged)}` : (server.volume ?? server.volume_exchanged)) : 'N/A'}
                                                             </td>
                                                             <td>
                                                                 <span className={`score-badge ${server.score >= 70 ? 'score-high' : server.score >= 40 ? 'score-medium' : 'score-low'}`}>
-                                                                    {server.score != null ? `${server.score}%` : '-'}
+                                                                    {server.score > 0 ? `${Math.round(server.score)}%` : '⚠'}
                                                                 </span>
                                                             </td>
                                                         </tr>
@@ -427,6 +434,35 @@ function ItemDetailModal({ item, realmId, onClose }) {
                                                         <PriceDisplay value={item.min_price - item.craft_cost} />
                                                     </span>
                                                 </p>
+                                            )}
+
+                                            {itemDetail?.reagents && itemDetail.reagents.length > 0 && (
+                                                <div className="reagents-section" style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+                                                    <h4 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        🧩 Composants nécessaires
+                                                    </h4>
+                                                    <div className="reagents-list">
+                                                        {itemDetail.reagents.map(r => (
+                                                            <div key={r.item_id} className="reagent-item" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px', background: 'var(--bg-secondary)', marginBottom: '4px', borderRadius: 'var(--radius-sm)' }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                                    {r.icon_url ? (
+                                                                        <img src={r.icon_url} alt="" style={{ width: 32, height: 32, borderRadius: 4, border: '1px solid var(--border-color)' }} />
+                                                                    ) : (
+                                                                        <div style={{ width: 32, height: 32, borderRadius: 4, background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📦</div>
+                                                                    )}
+                                                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                                        <span style={{ fontWeight: 500 }}>{r.name}</span>
+                                                                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Qté: {r.quantity}</span>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <div style={{ fontSize: '0.85rem' }}>PU: <PriceDisplay value={r.unit_price} /></div>
+                                                                    <div style={{ fontWeight: 500 }}>Total: <PriceDisplay value={(r.unit_price || 0) * r.quantity} /></div>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
                                             )}
                                         </div>
                                     ) : (

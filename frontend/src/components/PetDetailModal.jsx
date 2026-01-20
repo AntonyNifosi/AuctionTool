@@ -53,13 +53,14 @@ function PetDetailModal({ pet, realmId, onClose }) {
     ]
 
     // Prepare chart data from price_history
-    const chartData = petDetail?.price_history?.map(h => ({
+    // Prepare chart data from price_history
+    const chartData = (petDetail?.price_history || []).map(h => ({
         date: new Date(h.recorded_at).toLocaleDateString(),
         timestamp: new Date(h.recorded_at).getTime(),
         min_price: h.min_price / 10000,
         avg_price: h.avg_price ? h.avg_price / 10000 : null,
         quantity: h.total_quantity,
-    })).sort((a, b) => a.timestamp - b.timestamp) || []
+    })).sort((a, b) => a.timestamp - b.timestamp)
 
     // Sortable table logic
     const handleSort = (key) => {

@@ -32,8 +32,8 @@ function ProfitsPage() {
     const [total, setTotal] = useState(0)
     const pageSize = 50
 
-    // Sorting - default by profit descending
-    const [sortConfig, setSortConfig] = useState({ key: 'profit', direction: 'desc' })
+    // Sorting - default by score descending
+    const [sortConfig, setSortConfig] = useState({ key: 'score', direction: 'desc' })
 
     // Fetch profits data
     useEffect(() => {
@@ -95,6 +95,15 @@ function ProfitsPage() {
 
         fetchExpansions()
     }, [selectedRealm])
+
+    const getScoreBadgeClass = (score) => {
+        if (!score) return 'score-low'
+        if (score >= 70) return 'score-high'
+        if (score >= 40) return 'score-medium'
+        return 'score-low'
+    }
+
+
 
     const toggleProfession = (id) => {
         setSelectedProfessions(prev =>
@@ -236,6 +245,7 @@ function ProfitsPage() {
                             <th onClick={() => handleSort('profession_name')} style={{ cursor: 'pointer' }}>
                                 Métier{getSortIndicator('profession_name')}
                             </th>
+
                             <th onClick={() => handleSort('expansion')} style={{ cursor: 'pointer' }}>
                                 Extension{getSortIndicator('expansion')}
                             </th>
@@ -251,8 +261,11 @@ function ProfitsPage() {
                             <th onClick={() => handleSort('profit_margin')} style={{ cursor: 'pointer' }}>
                                 Marge{getSortIndicator('profit_margin')}
                             </th>
-                            <th onClick={() => handleSort('volume')} style={{ cursor: 'pointer' }}>
+                            <th onClick={() => handleSort('volume')} style={{ cursor: 'pointer', textAlign: 'right' }}>
                                 Volume{getSortIndicator('volume')}
+                            </th>
+                            <th onClick={() => handleSort('score')} style={{ cursor: 'pointer', textAlign: 'center' }}>
+                                Score{getSortIndicator('score')}
                             </th>
                         </tr>
                     </thead>
@@ -293,6 +306,7 @@ function ProfitsPage() {
                                         <td>
                                             <span className="badge">{item.profession_name}</span>
                                         </td>
+
                                         <td>
                                             <span className="text-muted">{item.expansion || 'N/A'}</span>
                                         </td>
@@ -311,6 +325,11 @@ function ProfitsPage() {
                                             </span>
                                         </td>
                                         <td>{item.volume ?? 'N/A'}</td>
+                                        <td style={{ textAlign: 'center' }}>
+                                            <span className={`score-badge ${getScoreBadgeClass(item.score)}`}>
+                                                {item.score ? `${Math.round(item.score)}%` : '0%'}
+                                            </span>
+                                        </td>
                                     </tr>
                                 )
                             })

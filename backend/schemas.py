@@ -58,6 +58,15 @@ class ItemDetail(ItemBase):
     trend: Optional[float] = None
     volume_change: Optional[int] = None
     price_history: List[PriceHistory] = []
+    reagents: List["Reagent"] = []
+
+
+class Reagent(BaseModel):
+    item_id: int
+    name: str
+    quantity: int
+    icon_url: Optional[str] = None
+    unit_price: Optional[int] = None
 
 
 class RealmPrice(BaseModel):
@@ -82,6 +91,7 @@ class ProfitItem(BaseModel):
     profit: Optional[int] = None
     profit_margin: Optional[float] = None
     volume: Optional[int] = None
+    score: Optional[float] = None
 
 
 class PetSummary(BaseModel):
