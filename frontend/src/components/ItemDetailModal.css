@@ -10,7 +10,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
+    z-index: 9999;
     padding: var(--spacing-lg);
 }
 
@@ -399,6 +399,97 @@
 }
 
 /* Ensure nothing inside the cell tries to be on top */
-.table td * {
-    z-index: auto;
+
+/* Mobile List View */
+.mobile-modal-grid {
+    display: none;
+    /* Hidden by default */
+}
+
+@media (max-width: 768px) {
+
+    /* Maximize Modal Height */
+    .modal-content {
+        width: 100%;
+        max-width: 100%;
+        height: 100vh;
+        /* Full height */
+        max-height: 100vh;
+        border-radius: 0;
+        /* Square corners for full screen */
+        border: none;
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .modal-overlay {
+        padding: 0;
+        align-items: flex-end;
+        /* Start from bottom if anim is setup that way, or center */
+    }
+
+    /* Hide Table on Mobile */
+    .table-container {
+        display: none !important;
+    }
+
+    /* Show Mobile Grid */
+    .mobile-modal-grid {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-sm);
+        padding-bottom: var(--spacing-lg);
+        /* Space for scrolling */
+    }
+
+    .mobile-list-item {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-md);
+        padding: var(--spacing-sm);
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        /* Subtle lift */
+    }
+
+    .mobile-list-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-weight: 500;
+        font-size: 0.9rem;
+        border-bottom: 1px solid var(--border-color);
+        padding-bottom: 4px;
+        margin-bottom: 4px;
+    }
+
+    .realm-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .realm-flag {
+        width: 20px;
+        height: auto;
+        border-radius: 2px;
+        box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+    }
+
+    .mobile-list-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+    }
+
+    .rank-emoji {
+        font-size: 1.1rem;
+        min-width: 24px;
+        text-align: center;
+    }
 }

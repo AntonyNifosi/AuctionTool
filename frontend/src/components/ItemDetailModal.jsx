@@ -179,42 +179,73 @@ function ItemDetailModal({ item, realmId, onClose }) {
                                     {realmPrices.length === 0 ? (
                                         <p className="text-muted">Aucune donnée de prix disponible</p>
                                     ) : (
-                                        <div className="table-container" style={{ maxHeight: '500px' }}>
-                                            <table className="table">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Serveur</th>
-                                                        <th>Prix Min</th>
-                                                        <th>Prix Moy</th>
-                                                        <th>Quantité</th>
-                                                        <th>Maj</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {realmPrices
-                                                        .filter(p => p.min_price)
-                                                        .sort((a, b) => (a.min_price || Infinity) - (b.min_price || Infinity))
-                                                        .map((price) => (
-                                                            <tr key={price.realm_id}>
-                                                                <td>
+                                        <>
+                                            {/* Desktop Table */}
+                                            <div className="table-container" style={{ maxHeight: '500px' }}>
+                                                <table className="table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Serveur</th>
+                                                            <th>Prix Min</th>
+                                                            <th>Prix Moy</th>
+                                                            <th>Quantité</th>
+                                                            <th>Maj</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {realmPrices
+                                                            .filter(p => p.min_price)
+                                                            .sort((a, b) => (a.min_price || Infinity) - (b.min_price || Infinity))
+                                                            .map((price) => (
+                                                                <tr key={price.realm_id}>
+                                                                    <td>
+                                                                        {price.region && (
+                                                                            <img
+                                                                                src={getFlagUrl(price.region)}
+                                                                                alt=""
+                                                                                style={{ width: 20, marginRight: 8, verticalAlign: 'middle' }}
+                                                                            />
+                                                                        )}
+                                                                        {price.realm_name}
+                                                                    </td>
+                                                                    <td><PriceDisplay value={price.min_price} /></td>
+                                                                    <td><PriceDisplay value={price.avg_price} /></td>
+                                                                    <td>{price.total_quantity ?? 'N/A'}</td>
+                                                                    <td className="text-muted">{formatTimeDiff(price.recorded_at)}</td>
+                                                                </tr>
+                                                            ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            {/* Mobile List View */}
+                                            <div className="mobile-modal-grid">
+                                                {realmPrices
+                                                    .filter(p => p.min_price)
+                                                    .sort((a, b) => (a.min_price || Infinity) - (b.min_price || Infinity))
+                                                    .map((price) => (
+                                                        <div className="mobile-list-item" key={price.realm_id}>
+                                                            <div className="mobile-list-header">
+                                                                <div className="realm-info">
                                                                     {price.region && (
                                                                         <img
                                                                             src={getFlagUrl(price.region)}
                                                                             alt=""
-                                                                            style={{ width: 20, marginRight: 8, verticalAlign: 'middle' }}
+                                                                            className="realm-flag"
                                                                         />
                                                                     )}
-                                                                    {price.realm_name}
-                                                                </td>
-                                                                <td><PriceDisplay value={price.min_price} /></td>
-                                                                <td><PriceDisplay value={price.avg_price} /></td>
-                                                                <td>{price.total_quantity ?? 'N/A'}</td>
-                                                                <td className="text-muted">{formatTimeDiff(price.recorded_at)}</td>
-                                                            </tr>
-                                                        ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
+                                                                    <span className="realm-name">{price.realm_name}</span>
+                                                                </div>
+                                                                <PriceDisplay value={price.min_price} />
+                                                            </div>
+                                                            <div className="mobile-list-row">
+                                                                <span className="text-muted">Moy: <PriceDisplay value={price.avg_price} /></span>
+                                                                <span className="text-muted">Qté: {price.total_quantity ?? 'N/A'}</span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                            </div>
+                                        </>
                                     )}
                                 </div>
                             )}
@@ -348,38 +379,66 @@ function ItemDetailModal({ item, realmId, onClose }) {
                                 <div className="tab-content">
                                     <h3>🏆 Meilleurs serveurs pour vendre</h3>
                                     {bestServers.length > 0 ? (
-                                        <div className="table-container" style={{ maxHeight: '500px' }}>
-                                            <table className="table">
-                                                <thead>
-                                                    <tr>
-                                                        <th>#</th>
-                                                        <th>Serveur</th>
-                                                        <th>Prix</th>
-                                                        <th>Volume Δ</th>
-                                                        <th>Score</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {bestServers.slice(0, 10).map((server, i) => (
-                                                        <tr key={server.realm_name || i}>
-                                                            <td>
-                                                                {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
-                                                            </td>
-                                                            <td>{server.realm_name}</td>
-                                                            <td><PriceDisplay value={server.min_price} /></td>
-                                                            <td className={(server.volume ?? server.volume_exchanged) > 0 ? 'text-success' : (server.volume ?? server.volume_exchanged) < 0 ? 'text-danger' : ''}>
-                                                                {(server.volume ?? server.volume_exchanged) != null ? ((server.volume ?? server.volume_exchanged) > 0 ? `+${(server.volume ?? server.volume_exchanged)}` : (server.volume ?? server.volume_exchanged)) : 'N/A'}
-                                                            </td>
-                                                            <td>
-                                                                <span className={`score-badge ${server.score >= 70 ? 'score-high' : server.score >= 40 ? 'score-medium' : 'score-low'}`}>
-                                                                    {server.score > 0 ? `${Math.round(server.score)}%` : '⚠'}
-                                                                </span>
-                                                            </td>
+                                        <>
+                                            {/* Desktop Table */}
+                                            <div className="table-container" style={{ maxHeight: '500px' }}>
+                                                <table className="table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>#</th>
+                                                            <th>Serveur</th>
+                                                            <th>Prix</th>
+                                                            <th>Volume Δ</th>
+                                                            <th>Score</th>
                                                         </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
+                                                    </thead>
+                                                    <tbody>
+                                                        {bestServers.slice(0, 10).map((server, i) => (
+                                                            <tr key={server.realm_name || i}>
+                                                                <td>
+                                                                    {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
+                                                                </td>
+                                                                <td>{server.realm_name}</td>
+                                                                <td><PriceDisplay value={server.min_price} /></td>
+                                                                <td className={(server.volume ?? server.volume_exchanged) > 0 ? 'text-success' : (server.volume ?? server.volume_exchanged) < 0 ? 'text-danger' : ''}>
+                                                                    {(server.volume ?? server.volume_exchanged) != null ? ((server.volume ?? server.volume_exchanged) > 0 ? `+${(server.volume ?? server.volume_exchanged)}` : (server.volume ?? server.volume_exchanged)) : 'N/A'}
+                                                                </td>
+                                                                <td>
+                                                                    <span className={`score-badge ${server.score >= 70 ? 'score-high' : server.score >= 40 ? 'score-medium' : 'score-low'}`}>
+                                                                        {server.score > 0 ? `${Math.round(server.score)}%` : '⚠'}
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            {/* Mobile List View */}
+                                            <div className="mobile-modal-grid">
+                                                {bestServers.slice(0, 10).map((server, i) => (
+                                                    <div className="mobile-list-item" key={server.realm_name || i}>
+                                                        <div className="mobile-list-header">
+                                                            <div className="realm-info">
+                                                                <span className="rank-emoji">
+                                                                    {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
+                                                                </span>
+                                                                <span className="realm-name">{server.realm_name}</span>
+                                                            </div>
+                                                            <span className={`score-badge ${server.score >= 70 ? 'score-high' : server.score >= 40 ? 'score-medium' : 'score-low'}`}>
+                                                                {server.score > 0 ? `${Math.round(server.score)}%` : '⚠'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="mobile-list-row">
+                                                            <PriceDisplay value={server.min_price} />
+                                                            <span className={(server.volume ?? server.volume_exchanged) > 0 ? 'text-success' : (server.volume ?? server.volume_exchanged) < 0 ? 'text-danger' : ''}>
+                                                                Vol: {(server.volume ?? server.volume_exchanged) != null ? ((server.volume ?? server.volume_exchanged) > 0 ? `+${(server.volume ?? server.volume_exchanged)}` : (server.volume ?? server.volume_exchanged)) : 'N/A'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </>
                                     ) : (
                                         <p className="text-muted">Aucune donnée disponible</p>
                                     )}

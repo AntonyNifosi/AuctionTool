@@ -164,10 +164,8 @@
 }
 
 .mobile-card-content {
-    flex: 1;
-    min-width: 0;
-    /* Fix flex text overflow */
-    overflow: hidden;
+    min-width: 100%;
+    max-width: 100%;
 }
 
 .mobile-card-header {
