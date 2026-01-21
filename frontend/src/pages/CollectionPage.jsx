@@ -38,6 +38,11 @@ function CollectionPage() {
                 character_name: characterName.trim()
             })
 
+            // Add realm_id if available to get prices for this specific realm
+            if (selectedRealm) {
+                params.append('realm_id', selectedRealm.id)
+            }
+
             const response = await fetch(`/api/collection/pets?${params}`)
 
             if (!response.ok) {

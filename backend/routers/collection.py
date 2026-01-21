@@ -17,7 +17,8 @@ router = APIRouter()
 @router.get("/pets")
 async def get_character_collection(
     realm_slug: str = Query(..., description="Realm slug (e.g. 'argent-dawn')"),
-    character_name: str = Query(..., description="Character name")
+    character_name: str = Query(..., description="Character name"),
+    realm_id: Optional[int] = Query(None, description="Realm ID for price context")
 ):
     """
     Fetch a character's pet collection from Battle.net API
@@ -41,6 +42,14 @@ async def get_character_collection(
         # Get our database pets for enrichment
         db_pets = {p["pet_id"]: p for p in dm.get_pets()}
         
+        # Pre-fetch prices if realm_id provided
+        price_map = {}
+        if realm_id:
+            # Use get_pets_summary to get prices for this specific realm
+            # This ensures consistency with the Pets page
+            summary_pets = dm.get_pets_summary(realm_id)
+            price_map = {p["pet_id"]: p["min_price"] for p in summary_pets if p.get("min_price")}
+        
         # Build response with price data
         result_pets = []
         total_value = 0
@@ -56,14 +65,19 @@ async def get_character_collection(
             # Get pet info from our database
             db_pet = db_pets.get(species_id, {})
             
-            # Get minimum price across all realms
+            # Determine price
             price = None
             if species_id:
-                prices = dm.get_pet_all_realms_prices(species_id)
-                if prices:
-                    valid_prices = [p["min_price"] for p in prices if p.get("min_price")]
-                    if valid_prices:
-                        price = min(valid_prices)
+                if realm_id:
+                    # Constant time lookup from pre-fetched map
+                    price = price_map.get(species_id)
+                else:
+                    # Fallback to old behavior: minimum price across ALL realms (SLOW & DIFFERENT)
+                    prices = dm.get_pet_all_realms_prices(species_id)
+                    if prices:
+                        valid_prices = [p["min_price"] for p in prices if p.get("min_price")]
+                        if valid_prices:
+                            price = min(valid_prices)
             
             is_tradable = db_pet.get("is_tradable", False) if db_pet else False
             
