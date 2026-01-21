@@ -201,12 +201,57 @@
     min-width: 60px;
 }
 
+/* Mobile Toggle Button */
+.mobile-toggle {
+    display: none;
+    /* Hidden on desktop */
+    position: fixed;
+    top: var(--spacing-md);
+    left: var(--spacing-md);
+    z-index: 2000;
+    width: 40px;
+    height: 40px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 1.25rem;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-md);
+}
+
+.mobile-toggle:hover,
+.mobile-toggle:active {
+    background: var(--bg-secondary);
+    color: var(--accent-gold);
+    border-color: var(--accent-gold);
+}
+
+/* Sidebar Close Button (Mobile Only) */
+.sidebar-close-btn {
+    display: none;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.25rem;
+    cursor: pointer;
+    padding: var(--spacing-xs);
+}
+
+/* Backdrop */
+.sidebar-backdrop {
+    display: none;
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
     .sidebar {
         width: var(--sidebar-collapsed);
     }
 
+    /* Hide texts on tablet but keep layout */
     .logo-text,
     .nav-label,
     .section-title,
@@ -239,7 +284,94 @@
 }
 
 @media (max-width: 768px) {
+
+    /* Show Toggle Button */
+    .mobile-toggle {
+        display: flex;
+    }
+
+    .sidebar-close-btn {
+        display: block;
+    }
+
+    /* Full Sidebar style for mobile (restoring visibility of all elements) */
     .sidebar {
-        display: none;
+        display: flex;
+        /* Override previous display: none */
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 80%;
+        /* Takes up most of screen but leaves space */
+        max-width: 300px;
+        height: 100vh;
+        transform: translateX(-100%);
+        /* Hidden by default */
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: var(--shadow-gold);
+        z-index: 2001;
+        /* Above toggle button and backdrop */
+    }
+
+    .sidebar.open {
+        transform: translateX(0);
+        /* Slide in */
+    }
+
+    /* Restore hidden elements from tablet view */
+    .logo-text,
+    .nav-label,
+    .section-title,
+    .nav-group-title,
+    .realm-selector label,
+    .last-update,
+    .sidebar-info,
+    .progress-text {
+        display: block;
+        /* Show everything on mobile when open */
+    }
+
+    .nav-item {
+        justify-content: flex-start;
+        padding: 0.75rem var(--spacing-md);
+    }
+
+    .sidebar-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .refresh-btn {
+        font-size: 0.875rem;
+        padding: 0.625rem 1.25rem;
+    }
+
+    .refresh-btn::before {
+        content: none;
+    }
+
+    /* Backdrop */
+    .sidebar-backdrop {
+        display: block;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(2px);
+        z-index: 2000;
+        animation: fade-in 0.3s ease;
+    }
+
+    @keyframes fade-in {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
     }
 }
