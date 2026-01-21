@@ -408,15 +408,15 @@
 
 @media (max-width: 768px) {
 
-    /* Maximize Modal Height */
+    /* Dynamic Full Screen Style (Adapts to Address Bar) */
     .modal-content {
         width: 100%;
         max-width: 100%;
-        height: 100vh;
-        /* Full height */
-        max-height: 100vh;
+        height: 100dvh;
+        /* Dynamic viewport height */
+        max-height: 100dvh;
         border-radius: 0;
-        /* Square corners for full screen */
+        /* Square corners for full immersion */
         border: none;
         margin: 0;
         display: flex;
