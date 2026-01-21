@@ -233,6 +233,58 @@ function ProfitsPage() {
                 <span className="results-hint">💡 Cliquez sur une ligne pour voir les détails</span>
             </div>
 
+            {/* Mobile Grid View */}
+            <div className="mobile-grid">
+                {items.map((item) => {
+                    const indicator = getProfitIndicator(item)
+                    return (
+                        <div
+                            key={item.item_id}
+                            className="mobile-card"
+                            onClick={() => setSelectedItem(item)}
+                        >
+                            <div className="mobile-card-header">
+                                {item.icon_url && item.icon_url !== 'NONE' ? (
+                                    <img src={item.icon_url} alt="" className="mobile-card-icon" loading="lazy" />
+                                ) : (
+                                    <div className="mobile-card-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔨</div>
+                                )}
+                                <div className="mobile-card-title-row">
+                                    <div className="mobile-card-title">{item.name}</div>
+                                    <div className="mobile-card-subtitle">{item.profession_name} • {item.expansion}</div>
+                                </div>
+                                <span className={`score-badge ${getScoreBadgeClass(item.score)}`}>
+                                    {item.score ? Math.round(item.score) : 0}%
+                                </span>
+                            </div>
+
+                            <div className="mobile-card-body">
+                                <div className="mobile-card-row">
+                                    <span className="mobile-card-label">Coût</span>
+                                    <PriceDisplay value={item.craft_cost} />
+                                </div>
+                                <div className="mobile-card-row">
+                                    <span className="mobile-card-label">Vente</span>
+                                    <PriceDisplay value={item.sell_price} />
+                                </div>
+                                <div className="mobile-card-row">
+                                    <span className="mobile-card-label">Marge</span>
+                                    <span className={item.profit_margin > 0 ? 'text-success' : item.profit_margin < 0 ? 'text-danger' : ''}>
+                                        {item.profit_margin != null ? `${(item.profit_margin * 100).toFixed(1)}%` : 'N/A'}
+                                    </span>
+                                </div>
+                                <div className="mobile-card-row">
+                                    <span className="mobile-card-label">Profit</span>
+                                    <span className={indicator.class} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        {indicator.icon} <PriceDisplay value={item.profit} />
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    )
+                })}
+            </div>
+
             {/* Table */}
             <div className="table-container">
                 <table className="table">

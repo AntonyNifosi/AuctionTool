@@ -213,24 +213,119 @@
 /* Responsive */
 @media (max-width: 768px) {
     .modal-overlay {
-        padding: var(--spacing-sm);
+        padding: 0;
+        align-items: flex-end;
+        overflow: hidden;
     }
 
     .modal-content {
-        max-height: 95vh;
+        width: 100%;
+        /* Safer than 100vw regarding scrollbars */
+        max-width: 100%;
+        height: 85vh;
+        max-height: 85vh;
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        border: none;
+        border-top: 1px solid var(--border-color);
+        box-sizing: border-box;
+        overflow-x: hidden;
+        margin: 0;
+    }
+
+    .modal-header {
+        padding: var(--spacing-sm) var(--spacing-md);
+        min-height: 60px;
+        gap: var(--spacing-sm);
+        flex-direction: row;
+        align-items: center;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .modal-title-row {
+        width: auto;
+        flex: 1;
+        gap: var(--spacing-sm);
+        min-width: 0;
+        overflow: hidden;
+        box-sizing: border-box;
+    }
+
+    .modal-close {
+        position: static;
+        /* Static to flow with flex */
+        width: 32px;
+        height: 32px;
+        font-size: 1rem;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-color);
+        flex-shrink: 0;
+    }
+
+    .modal-title {
+        font-size: 0.95rem;
+        line-height: 1.2;
+        margin-bottom: 0;
+        white-space: normal;
+    }
+
+    .modal-metrics {
+        padding: var(--spacing-sm) var(--spacing-md);
+    }
+
+    .modal-metrics .stats-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: var(--spacing-sm);
+        display: grid;
+    }
+
+    .modal-metrics .stat-card {
+        padding: var(--spacing-sm);
+    }
+
+    .modal-metrics .stat-value {
+        font-size: 1.1rem;
+    }
+
+    .modal-metrics .stat-label {
+        font-size: 0.7rem;
     }
 
     .modal-tabs {
         padding: 0;
+        overflow-x: auto;
+        justify-content: flex-start;
+        border-bottom: 1px solid var(--border-color);
     }
 
     .modal-tab {
-        padding: var(--spacing-sm) var(--spacing-md);
-        font-size: 0.75rem;
+        padding: 0.625rem var(--spacing-md);
+        font-size: 0.8rem;
+        flex: 1;
+        justify-content: center;
+        white-space: nowrap;
     }
 
     .modal-tab span:last-child {
-        display: none;
+        display: inline;
+    }
+
+    .modal-body {
+        padding: var(--spacing-md);
+    }
+
+    /* Make charts fit - REMORE negative margin and ensure it fits */
+    .recharts-responsive-container {
+        margin-left: 0;
+        /* Reset negative margin */
+        width: 100% !important;
+        /* Force fit */
+    }
+
+    /* Ensure no child forces width */
+    .modal-body>* {
+        max-width: 100%;
+        box-sizing: border-box;
     }
 }
 

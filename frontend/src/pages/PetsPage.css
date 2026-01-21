@@ -1,0 +1,98 @@
+/* Pets Page Styles */
+.pets-page {
+    max-width: 1400px;
+}
+
+/* Mobile Card View */
+.mobile-grid {
+    display: none;
+    grid-template-columns: 1fr;
+    gap: var(--spacing-sm);
+}
+
+.mobile-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.mobile-card-header {
+    display: flex;
+    gap: var(--spacing-sm);
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: var(--spacing-xs);
+    min-width: 0;
+    width: 100%;
+}
+
+.mobile-card-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-tertiary);
+    flex-shrink: 0;
+    object-fit: cover;
+}
+
+.mobile-card-title-row {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+}
+
+.mobile-card-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+}
+
+.mobile-card-subtitle {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.mobile-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.mobile-card-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8rem;
+}
+
+.mobile-card-label {
+    color: var(--text-muted);
+}
+
+/* Responsive Toggle */
+@media (max-width: 768px) {
+    .table-container {
+        display: none;
+    }
+
+    .mobile-grid {
+        display: grid;
+    }
+
+    .results-hint {
+        display: none;
+    }
+}

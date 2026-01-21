@@ -91,6 +91,19 @@ function ItemsPage() {
         fetchCategories()
     }, [])
 
+    // Helper for quality colors (reused from CollectionPage)
+    const getQualityColor = (quality) => {
+        const colors = {
+            poor: '#9d9d9d',
+            common: '#ffffff',
+            uncommon: '#1eff00',
+            rare: '#0070dd',
+            epic: '#a335ee',
+            legendary: '#ff8000'
+        }
+        return colors[quality?.toLowerCase()] || colors.common
+    }
+
     // Handle sort column click
     const handleSort = (column) => {
         if (sortBy === column) {
@@ -194,6 +207,69 @@ function ItemsPage() {
                     ⚠️ {error}
                 </div>
             )}
+
+            {/* Mobile Grid View (Visible only on mobile) */}
+            <div className="mobile-grid">
+                {loading ? (
+                    // Loading skeletons for grid (3 items)
+                    Array.from({ length: 3 }).map((_, i) => (
+                        <div key={i} className="mobile-card">
+                            <div className="skeleton" style={{ width: 48, height: 48, borderRadius: 6 }} />
+                            <div className="mobile-card-content">
+                                <div className="skeleton" style={{ width: '60%', height: 20, marginBottom: 8 }} />
+                                <div className="skeleton" style={{ width: '40%', height: 16 }} />
+                            </div>
+                        </div>
+                    ))
+                ) : items.length === 0 ? (
+                    <div className="empty-state">
+                        <p>Aucun item trouvé</p>
+                    </div>
+                ) : (
+                    items.map((item) => (
+                        <div
+                            key={`card-${item.item_id}`}
+                            className="mobile-card"
+                            onClick={() => setSelectedItem(item)}
+                        >
+                            <div className="mobile-card-icon-wrapper">
+                                {item.icon_url && item.icon_url !== 'NONE' ? (
+                                    <img src={item.icon_url} alt="" className="mobile-card-icon" loading="lazy" />
+                                ) : (
+                                    <div className="mobile-card-icon placeholder" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-tertiary)' }}>📦</div>
+                                )}
+                            </div>
+                            <div className="mobile-card-content">
+                                <div className="mobile-card-header">
+                                    <div className="mobile-card-name" style={{ color: item.quality ? getQualityColor(item.quality) : 'inherit' }}>
+                                        {item.name}
+                                    </div>
+                                    <div className="mobile-card-trend">
+                                        <TrendBadge value={item.trend} />
+                                    </div>
+                                </div>
+
+                                <div className="mobile-card-meta">
+                                    <span className="badge">{item.category}</span>
+                                    <span>Qté: {item.total_quantity}</span>
+                                    {item.volume_change !== 0 && (
+                                        <span className={item.volume_change > 0 ? 'text-success' : 'text-danger'} style={{ fontSize: '0.75rem' }}>
+                                            ({formatVolumeChange(item.volume_change)})
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className="mobile-card-footer">
+                                    <PriceDisplay value={item.min_price} />
+                                    {item.profession_name && (
+                                        <span className="text-muted" style={{ fontSize: '0.7rem' }}>Item {item.profession_name}</span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
 
             {/* Table */}
             <div className="table-container">

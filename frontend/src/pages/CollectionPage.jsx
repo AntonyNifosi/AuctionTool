@@ -190,7 +190,40 @@ function CollectionPage() {
                         </div>
                     </div>
 
-                    {/* Pets Table */}
+                    {/* Mobile Grid View (Visible only on mobile) */}
+                    <div className="mobile-grid">
+                        {collection.pets.map((pet, index) => (
+                            <div className="mobile-card" key={`card-${pet.pet_id}-${index}`}>
+                                <div className="mobile-card-icon-wrapper">
+                                    {pet.icon_url ? (
+                                        <img src={pet.icon_url} alt="" className="mobile-card-icon" loading="lazy" />
+                                    ) : (
+                                        <div className="mobile-card-icon placeholder">🐾</div>
+                                    )}
+                                </div>
+                                <div className="mobile-card-content">
+                                    <div className="mobile-card-header">
+                                        <div className="mobile-card-name" style={{ color: getQualityColor(pet.quality) }}>
+                                            {pet.name}
+                                        </div>
+                                        {pet.is_tradable && <span title="Échangeable">✅</span>}
+                                    </div>
+
+                                    <div className="mobile-card-meta">
+                                        <span>Niv. {pet.level}</span>
+                                        <span>•</span>
+                                        <span style={{ color: getQualityColor(pet.quality) }}>{pet.quality}</span>
+                                    </div>
+
+                                    <div className="mobile-card-footer">
+                                        <PriceDisplay value={pet.min_price} />
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Desktop Table View (Hidden on mobile) */}
                     <div className="table-container">
                         <table className="table">
                             <thead>

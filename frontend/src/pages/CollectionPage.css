@@ -121,4 +121,85 @@
     .collection-stats {
         grid-template-columns: repeat(2, 1fr);
     }
+
+    /* Hide Table on Mobile */
+    .table-container {
+        display: none;
+    }
+
+    /* Show Grid on Mobile */
+    .mobile-grid {
+        display: grid !important;
+    }
+}
+
+/* Mobile Grid Styles (Hidden on Desktop) */
+.mobile-grid {
+    display: none;
+    grid-template-columns: 100%;
+    width: 100%;
+    box-sizing: border-box;
+    gap: 0.5rem;
+}
+
+.mobile-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.5rem;
+    /* Aggressive padding reduction */
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.mobile-card-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+}
+
+.mobile-card-content {
+    flex: 1;
+    min-width: 0;
+    /* Fix flex text overflow */
+    overflow: hidden;
+}
+
+.mobile-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 0.125rem;
+}
+
+.mobile-card-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-right: 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mobile-card-meta {
+    display: flex;
+    gap: 0.5rem;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.mobile-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.mobile-card-footer .price-display {
+    font-size: 0.9rem;
 }
