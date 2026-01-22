@@ -120,6 +120,26 @@
 
     .collection-stats {
         grid-template-columns: repeat(2, 1fr);
+        gap: 0.5rem;
+    }
+
+    .stat-card {
+        padding: 0.75rem;
+        /* Reduce padding to prevent overflow */
+        overflow: hidden;
+        /* Safety net */
+    }
+
+    .stat-value {
+        font-size: 1.1rem;
+        /* Smaller font for large numbers */
+        word-wrap: break-word;
+        /* Allow wrapping if absolutely necessary */
+    }
+
+    .stat-icon {
+        font-size: 1.5rem;
+        margin-bottom: 0.25rem;
     }
 
     /* Hide Table on Mobile */

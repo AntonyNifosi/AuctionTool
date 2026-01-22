@@ -189,7 +189,12 @@ function CollectionPage() {
                                 />
                             </div>
                             <div className="stat-value">
-                                {Math.floor(collection.total_value / 10000).toLocaleString()}g
+                                {Math.floor(collection.total_value / 10000).toLocaleString()}
+                                <img
+                                    src="https://wow.zamimg.com/images/icons/money-gold.gif"
+                                    alt="g"
+                                    style={{ width: 16, height: 16, verticalAlign: 'middle', marginLeft: 4, transform: 'translateY(-2px)' }}
+                                />
                             </div>
                             <div className="stat-label">En or</div>
                         </div>
