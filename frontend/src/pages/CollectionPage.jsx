@@ -204,7 +204,7 @@ function CollectionPage() {
                     <div className="mobile-grid">
                         {collection.pets.map((pet, index) => (
                             <div
-                                className="mobile-card"
+                                className="mobile-card vertical"
                                 key={`card-${pet.pet_id}-${index}`}
                                 onClick={() => setSelectedPet(pet)}
                             >

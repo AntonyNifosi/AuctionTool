@@ -731,3 +731,172 @@ h3 {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* =========================================
+   Shared Component: Mobile Cards
+   ========================================= */
+
+/* Mobile Grid Container */
+.mobile-grid {
+  display: none;
+  grid-template-columns: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  gap: 0.5rem;
+}
+
+/* Base Mobile Card */
+.mobile-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.5rem;
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+  transition: all var(--transition-fast);
+  gap: 0.5rem;
+}
+
+.mobile-card:active {
+  background: var(--bg-tertiary);
+  transform: scale(0.99);
+}
+
+/* Variant: Vertical (Collection, Pets) */
+.mobile-card.vertical {
+  flex-direction: column;
+}
+
+/* Variant: Horizontal (Items) */
+.mobile-card.horizontal {
+  flex-direction: row;
+  align-items: flex-start;
+}
+
+/* Horizontal Content Wrapper */
+.mobile-card.horizontal .mobile-card-content {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Card Header - FLEXBOX UPDATE */
+.mobile-card-header {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.25rem;
+  margin-bottom: 0.25rem;
+  width: 100%;
+}
+
+/* Icon Wrapper & Icon */
+.mobile-card-icon-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mobile-card-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+}
+
+.mobile-card-icon.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+}
+
+/* Typography & Truncation */
+.mobile-card-title-row {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  /* Take remaining space in header */
+}
+
+/* The name itself needs truncation properties */
+.mobile-card-name,
+.mobile-card-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  /* Force single line */
+  overflow: hidden;
+  /* Hide overflow */
+  text-overflow: ellipsis;
+  /* Add dots ... */
+  color: var(--text-primary);
+  line-height: 1.2;
+  display: block;
+  min-width: 0;
+  flex: 1;
+  /* Ensure it takes max width available inside flex parent */
+}
+
+.mobile-card-subtitle,
+.mobile-card-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Body & Rows */
+.mobile-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.mobile-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  min-height: 24px;
+}
+
+.mobile-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  align-items: center;
+}
+
+/* Footers */
+.mobile-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: auto;
+}
+
+/* Price Alignment */
+.mobile-card-footer .price-display,
+.mobile-card-row .price-display {
+  font-size: 0.9rem;
+  justify-content: flex-end;
+}
+
+/* Trend (Items Page specific) */
+.mobile-card-trend {
+  margin-left: auto;
+  /* Push to the far right */
+  display: flex;
+  flex-shrink: 0;
+  /* Prevent shrinking */
+}

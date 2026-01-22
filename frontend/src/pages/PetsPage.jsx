@@ -147,7 +147,7 @@ function PetsPage() {
                 {pets.map((pet) => (
                     <div
                         key={pet.pet_id}
-                        className="mobile-card"
+                        className="mobile-card vertical"
                         onClick={() => setSelectedPet(pet)}
                     >
                         <div className="mobile-card-header">

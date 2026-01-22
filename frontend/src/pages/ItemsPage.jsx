@@ -229,7 +229,7 @@ function ItemsPage() {
                     items.map((item) => (
                         <div
                             key={`card-${item.item_id}`}
-                            className="mobile-card"
+                            className="mobile-card horizontal"
                             onClick={() => setSelectedItem(item)}
                         >
                             <div className="mobile-card-icon-wrapper">
