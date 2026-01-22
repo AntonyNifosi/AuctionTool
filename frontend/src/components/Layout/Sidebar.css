@@ -308,13 +308,14 @@
         transform: translateX(-100%);
         /* Hidden by default */
         transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        box-shadow: var(--shadow-gold);
+        box-shadow: none;
         z-index: 2001;
         /* Above toggle button and backdrop */
     }
 
     .sidebar.open {
         transform: translateX(0);
+        box-shadow: var(--shadow-gold);
         /* Slide in */
     }
 
