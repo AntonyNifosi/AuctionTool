@@ -240,7 +240,7 @@ function ProfitsPage() {
                     return (
                         <div
                             key={item.item_id}
-                            className="mobile-card"
+                            className="mobile-card vertical"
                             onClick={() => setSelectedItem(item)}
                         >
                             <div className="mobile-card-header">

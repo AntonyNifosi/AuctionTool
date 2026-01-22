@@ -164,13 +164,6 @@
     margin-bottom: var(--spacing-sm);
 }
 
-.text-success {
-    color: var(--color-success);
-}
-
-.text-danger {
-    color: var(--color-danger);
-}
 
 /* Score badges */
 .score-badge {
