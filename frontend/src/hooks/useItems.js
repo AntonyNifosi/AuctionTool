@@ -68,7 +68,17 @@ export function useItems(selectedRealm) {
                 if (category) params.category = category
 
                 const data = await api.items.list(params)
-                setItems(data.items || [])
+
+                setItems(prev => {
+                    if (page === 1) return data.items || []
+
+                    // Filter out duplicates if any (just in case)
+                    const existingIds = new Set(prev.map(i => i.item_id))
+                    const newItems = (data.items || []).filter(i => !existingIds.has(i.item_id))
+
+                    return [...prev, ...newItems]
+                })
+
                 setTotal(data.total || 0)
                 setTotalPages(Math.ceil((data.total || 0) / pageSize))
             } catch (err) {
@@ -90,6 +100,8 @@ export function useItems(selectedRealm) {
             setSortOrder(column === 'min_price' || column === 'trend' ? 'desc' : 'asc')
         }
         setPage(1)
+        setLoading(true)
+        setItems([]) // Clear items immediately to avoid "flash" of old sorted items while loading
     }
 
     const resetPage = () => setPage(1)
@@ -112,7 +124,7 @@ export function useItems(selectedRealm) {
 
         // Setters & Actions
         setSearch,
-        setCategory: (cat) => { setCategory(cat); resetPage(); },
+        setCategory: (cat) => { setCategory(cat); setPage(1); setLoading(true); },
         setPage,
         handleSort,
         getSortIcon: (column) => {

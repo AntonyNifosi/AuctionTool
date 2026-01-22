@@ -4,6 +4,7 @@ import { useItems } from '../hooks/useItems'
 import PriceDisplay from '../components/PriceDisplay'
 import TrendBadge from '../components/TrendBadge'
 import ItemDetailModal from '../components/ItemDetailModal'
+import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger'
 import { formatTimeDiff, formatVolumeChange } from '../utils/formatters'
 import './ItemsPage.css'
 
@@ -125,7 +126,8 @@ function ItemsPage() {
 
             {/* Mobile Grid View (Visible only on mobile) */}
             <div className="mobile-grid">
-                {loading ? (
+                {/* Show initial loading skeletons only on first page */}
+                {loading && page === 1 ? (
                     // Loading skeletons for grid (3 items)
                     Array.from({ length: 3 }).map((_, i) => (
                         <div key={i} className="mobile-card">
@@ -136,53 +138,65 @@ function ItemsPage() {
                             </div>
                         </div>
                     ))
-                ) : items.length === 0 ? (
+                ) : items.length === 0 && !loading ? (
                     <div className="empty-state">
                         <p>Aucun item trouvé</p>
                     </div>
                 ) : (
-                    items.map((item) => (
-                        <div
-                            key={`card-${item.item_id}`}
-                            className="mobile-card horizontal"
-                            onClick={() => setSelectedItem(item)}
-                        >
-                            <div className="mobile-card-icon-wrapper">
-                                {item.icon_url && item.icon_url !== 'NONE' ? (
-                                    <img src={item.icon_url} alt="" className="mobile-card-icon" loading="lazy" />
-                                ) : (
-                                    <div className="mobile-card-icon placeholder" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-tertiary)' }}>📦</div>
-                                )}
-                            </div>
-                            <div className="mobile-card-content">
-                                <div className="mobile-card-header">
-                                    <div className="mobile-card-name" style={{ color: item.quality ? getQualityColor(item.quality) : 'inherit' }}>
-                                        {item.name}
-                                    </div>
-                                    <div className="mobile-card-trend">
-                                        <TrendBadge value={item.trend} />
-                                    </div>
-                                </div>
-
-                                <div className="mobile-card-meta">
-                                    <span className="badge">{item.category}</span>
-                                    <span>Qté: {item.total_quantity}</span>
-                                    {item.volume_change !== 0 && (
-                                        <span className={item.volume_change > 0 ? 'text-success' : 'text-danger'} style={{ fontSize: '0.75rem' }}>
-                                            ({formatVolumeChange(item.volume_change)})
-                                        </span>
+                    <>
+                        {items.map((item) => (
+                            <div
+                                key={`card-${item.item_id}`}
+                                className="mobile-card horizontal"
+                                onClick={() => setSelectedItem(item)}
+                            >
+                                <div className="mobile-card-icon-wrapper">
+                                    {item.icon_url && item.icon_url !== 'NONE' ? (
+                                        <img src={item.icon_url} alt="" className="mobile-card-icon" loading="lazy" />
+                                    ) : (
+                                        <div className="mobile-card-icon placeholder" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-tertiary)' }}>📦</div>
                                     )}
                                 </div>
+                                <div className="mobile-card-content">
+                                    <div className="mobile-card-header">
+                                        <div className="mobile-card-name" style={{ color: item.quality ? getQualityColor(item.quality) : 'inherit' }}>
+                                            {item.name}
+                                        </div>
+                                        <div className="mobile-card-trend">
+                                            <TrendBadge value={item.trend} />
+                                        </div>
+                                    </div>
 
-                                <div className="mobile-card-footer">
-                                    <PriceDisplay value={item.min_price} />
-                                    {item.profession_name && (
-                                        <span className="text-muted" style={{ fontSize: '0.7rem' }}>Item {item.profession_name}</span>
-                                    )}
+                                    <div className="mobile-card-meta">
+                                        <span className="badge">{item.category}</span>
+                                        <span>Qté: {item.total_quantity}</span>
+                                        {item.volume_change !== 0 && (
+                                            <span className={item.volume_change > 0 ? 'text-success' : 'text-danger'} style={{ fontSize: '0.75rem' }}>
+                                                ({formatVolumeChange(item.volume_change)})
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    <div className="mobile-card-footer">
+                                        <PriceDisplay value={item.min_price} />
+                                        {item.profession_name && (
+                                            <span className="text-muted" style={{ fontSize: '0.7rem' }}>Item {item.profession_name}</span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))
+                        ))}
+                        {/* Loading indicator for infinite scroll on mobile */}
+                        {loading && page > 1 && (
+                            <div className="loading-more">
+                                <div className="spinner"></div> Chargement...
+                            </div>
+                        )}
+                        {/* Infinite Scroll Trigger */}
+                        {page < totalPages && !loading && (
+                            <InfiniteScrollTrigger onIntersect={() => setPage(prev => prev + 1)} />
+                        )}
+                    </>
                 )}
             </div>
 
@@ -223,7 +237,7 @@ function ItemsPage() {
                         </tr>
                     </thead>
                     <tbody>
-                        {loading ? (
+                        {loading && page === 1 ? (
                             // Loading skeletons
                             Array.from({ length: 10 }).map((_, i) => (
                                 <tr key={i}>
@@ -238,7 +252,7 @@ function ItemsPage() {
                                     <td><div className="skeleton" style={{ width: 50, height: 20 }} /></td>
                                 </tr>
                             ))
-                        ) : items.length === 0 ? (
+                        ) : items.length === 0 && !loading ? (
                             <tr>
                                 <td colSpan="9" style={{ textAlign: 'center', padding: '2rem' }}>
                                     Aucun item trouvé
@@ -290,67 +304,29 @@ function ItemsPage() {
                                 </tr>
                             ))
                         )}
+                        {/* Loading more row */}
+                        {loading && page > 1 && (
+                            <tr>
+                                <td colSpan="9" style={{ textAlign: 'center', padding: '1rem' }}>
+                                    <div className="spinner-inline"></div> Chargement de la suite...
+                                </td>
+                            </tr>
+                        )}
+                        {/* Trigger for Desktop */}
+                        {page < totalPages && !loading && items.length > 0 && (
+                            <tr style={{ height: '20px', border: 'none' }}>
+                                <td colSpan="9" style={{ padding: 0, border: 'none' }}>
+                                    <InfiniteScrollTrigger onIntersect={() => setPage(prev => prev + 1)} />
+                                </td>
+                            </tr>
+                        )}
+
                     </tbody>
                 </table>
             </div>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-                <div className="pagination">
-                    <button
-                        className="pagination-btn"
-                        onClick={() => setPage(1)}
-                        disabled={page === 1}
-                    >
-                        ««
-                    </button>
-                    <button
-                        className="pagination-btn"
-                        onClick={() => setPage(p => Math.max(1, p - 1))}
-                        disabled={page === 1}
-                    >
-                        «
-                    </button>
-
-                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                        let pageNum
-                        if (totalPages <= 5) {
-                            pageNum = i + 1
-                        } else if (page <= 3) {
-                            pageNum = i + 1
-                        } else if (page >= totalPages - 2) {
-                            pageNum = totalPages - 4 + i
-                        } else {
-                            pageNum = page - 2 + i
-                        }
-
-                        return (
-                            <button
-                                key={pageNum}
-                                className={`pagination-btn ${page === pageNum ? 'active' : ''}`}
-                                onClick={() => setPage(pageNum)}
-                            >
-                                {pageNum}
-                            </button>
-                        )
-                    })}
-
-                    <button
-                        className="pagination-btn"
-                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                        disabled={page === totalPages}
-                    >
-                        »
-                    </button>
-                    <button
-                        className="pagination-btn"
-                        onClick={() => setPage(totalPages)}
-                        disabled={page === totalPages}
-                    >
-                        »»
-                    </button>
-                </div>
-            )}
+            {/* Padding at bottom to avoid content being hidden behind triggers or edges */}
+            <div style={{ height: '20px' }}></div>
 
             {/* Item Detail Modal */}
             {selectedItem && (
