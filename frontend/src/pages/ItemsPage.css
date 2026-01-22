@@ -146,9 +146,8 @@
 
 .mobile-card-trend {
     display: flex;
-    align-items: center;
-    justify-content: flex-end;
     min-width: 0;
+    margin-left: auto;
 }
 
 .mobile-card-meta {

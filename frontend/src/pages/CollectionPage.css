@@ -183,11 +183,7 @@
 }
 
 .mobile-card-header {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    /* Icon | Title | Check */
     gap: 0.5rem;
-    align-items: center;
     border-bottom: 1px solid var(--border-color);
     padding-bottom: 0.25rem;
     margin-bottom: 0.25rem;
