@@ -3,29 +3,29 @@ import {
     XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts'
 
-const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-        return (
-            <div className="custom-chart-tooltip">
-                <p className="tooltip-date">{label}</p>
-                {payload.map((p, i) => (
-                    <p key={i} style={{ color: p.color }}>
-                        {p.name}: {
-                            p.dataKey === 'min_price' || p.dataKey === 'avg_price'
-                                ? `${p.value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}g`
-                                : p.value.toLocaleString()
-                        }
-                    </p>
-                ))}
-            </div>
-        )
-    }
-    return null
-}
-
-export function PriceChart({ data }) {
+export function PriceChart({ data, styles }) {
     if (!data || data.length === 0) {
         return <p className="text-muted">Aucun historique disponible</p>
+    }
+
+    const CustomTooltip = ({ active, payload, label }) => {
+        if (active && payload && payload.length) {
+            return (
+                <div className={styles.customChartTooltip}>
+                    <p className={styles.tooltipDate}>{label}</p>
+                    {payload.map((p, i) => (
+                        <p key={i} style={{ color: p.color, margin: 0 }}>
+                            {p.name}: {
+                                p.dataKey === 'min_price' || p.dataKey === 'avg_price'
+                                    ? `${p.value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}g`
+                                    : p.value.toLocaleString()
+                            }
+                        </p>
+                    ))}
+                </div>
+            )
+        }
+        return null
     }
 
     return (
@@ -83,9 +83,25 @@ export function PriceChart({ data }) {
     )
 }
 
-export function VolumeChart({ data }) {
+export function VolumeChart({ data, styles }) {
     if (!data || data.length === 0) {
         return <p className="text-muted">Aucune donnée de volume disponible</p>
+    }
+
+    const CustomTooltip = ({ active, payload, label }) => {
+        if (active && payload && payload.length) {
+            return (
+                <div className={styles.customChartTooltip}>
+                    <p className={styles.tooltipDate}>{label}</p>
+                    {payload.map((p, i) => (
+                        <p key={i} style={{ color: p.color, margin: 0 }}>
+                            {p.name}: {p.value.toLocaleString()}
+                        </p>
+                    ))}
+                </div>
+            )
+        }
+        return null
     }
 
     return (

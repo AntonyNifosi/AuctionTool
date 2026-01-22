@@ -1,6 +1,6 @@
 import PriceDisplay from '../PriceDisplay'
 
-export function BestServersTable({ bestServers }) {
+export function BestServersTable({ bestServers, styles }) {
     if (bestServers.length === 0) {
         return <p className="text-muted">Aucune donnée disponible</p>
     }
@@ -10,8 +10,8 @@ export function BestServersTable({ bestServers }) {
     return (
         <>
             {/* Desktop Table */}
-            <div className="table-container" style={{ maxHeight: '500px' }}>
-                <table className="table">
+            <div className={styles.tableContainer} style={{ maxHeight: '500px' }}>
+                <table className={styles.table}>
                     <thead>
                         <tr>
                             <th>#</th>
@@ -33,7 +33,7 @@ export function BestServersTable({ bestServers }) {
                                     {(server.volume ?? server.volume_exchanged) != null ? ((server.volume ?? server.volume_exchanged) > 0 ? `+${(server.volume ?? server.volume_exchanged)}` : (server.volume ?? server.volume_exchanged)) : 'N/A'}
                                 </td>
                                 <td>
-                                    <span className={`score-badge ${server.score >= 70 ? 'score-high' : server.score >= 40 ? 'score-medium' : 'score-low'}`}>
+                                    <span className={`${styles.scoreBadge} ${server.score >= 70 ? styles.scoreHigh : server.score >= 40 ? styles.scoreMedium : styles.scoreLow}`}>
                                         {server.score > 0 ? `${Math.round(server.score)}%` : '⚠'}
                                     </span>
                                 </td>
@@ -44,21 +44,21 @@ export function BestServersTable({ bestServers }) {
             </div>
 
             {/* Mobile List View */}
-            <div className="mobile-modal-grid">
+            <div className={styles.mobileModalGrid}>
                 {topServers.map((server, i) => (
-                    <div className="mobile-list-item" key={server.realm_name || i}>
-                        <div className="mobile-list-header">
-                            <div className="realm-info">
-                                <span className="rank-emoji">
+                    <div className={styles.mobileListItem} key={server.realm_name || i}>
+                        <div className={styles.mobileListHeader}>
+                            <div className={styles.realmInfo}>
+                                <span className={styles.rankEmoji}>
                                     {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
                                 </span>
                                 <span className="realm-name">{server.realm_name}</span>
                             </div>
-                            <span className={`score-badge ${server.score >= 70 ? 'score-high' : server.score >= 40 ? 'score-medium' : 'score-low'}`}>
+                            <span className={`${styles.scoreBadge} ${server.score >= 70 ? styles.scoreHigh : server.score >= 40 ? styles.scoreMedium : styles.scoreLow}`}>
                                 {server.score > 0 ? `${Math.round(server.score)}%` : '⚠'}
                             </span>
                         </div>
-                        <div className="mobile-list-row">
+                        <div className={styles.mobileListRow}>
                             <PriceDisplay value={server.min_price} />
                             <span className={(server.volume ?? server.volume_exchanged) > 0 ? 'text-success' : (server.volume ?? server.volume_exchanged) < 0 ? 'text-danger' : ''}>
                                 Vol: {(server.volume ?? server.volume_exchanged) != null ? ((server.volume ?? server.volume_exchanged) > 0 ? `+${(server.volume ?? server.volume_exchanged)}` : (server.volume ?? server.volume_exchanged)) : 'N/A'}

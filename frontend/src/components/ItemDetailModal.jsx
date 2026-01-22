@@ -5,7 +5,7 @@ import { RealmPriceTable } from './ItemDetail/RealmPriceTable'
 import { BestServersTable } from './ItemDetail/BestServersTable'
 import { ItemMetrics } from './ItemDetail/ItemMetrics'
 import { CraftInfo } from './ItemDetail/CraftInfo'
-import './ItemDetailModal.css'
+import styles from './ItemDetail/ItemDetail.module.css'
 
 function ItemDetailModal({ item, realmId, onClose }) {
     const {
@@ -29,33 +29,35 @@ function ItemDetailModal({ item, realmId, onClose }) {
     ]
 
     return (
-        <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className={styles.modalOverlay} onClick={onClose}>
+            <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
-                <div className="modal-header">
-                    <div className="modal-title-row" style={{ flexWrap: 'nowrap' }}>
+                <div className={styles.modalHeader}>
+                    <div className={styles.modalTitleRow}>
                         {item.icon_url && item.icon_url !== 'NONE' && (
-                            <img src={item.icon_url} alt="" className="modal-icon" style={{ flexShrink: 0 }} />
+                            <img src={item.icon_url} alt="" className={styles.modalIcon} />
                         )}
                         <div style={{ minWidth: 0 }}>
-                            <h2 className="modal-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <h2 className={styles.modalTitle}>
                                 📋 {item.name}
                             </h2>
                             <span className="badge">{item.category || 'Housing'}</span>
                         </div>
                     </div>
-                    <button className="modal-close" onClick={onClose}>✕</button>
+                    <button className={styles.modalClose} onClick={onClose}>✕</button>
                 </div>
 
                 {/* Metrics */}
-                <ItemMetrics item={item} itemDetail={itemDetail} />
+                <div className={styles.modalMetrics}>
+                    <ItemMetrics item={item} itemDetail={itemDetail} styles={styles} />
+                </div>
 
                 {/* Tabs */}
-                <div className="modal-tabs">
+                <div className={styles.modalTabs}>
                     {tabs.map((tab) => (
                         <button
                             key={tab.id}
-                            className={`modal-tab ${activeTab === tab.id ? 'active' : ''}`}
+                            className={`${styles.modalTab} ${activeTab === tab.id ? styles.activeTab : ''}`}
                             onClick={() => setActiveTab(tab.id)}
                         >
                             <span>{tab.icon}</span>
@@ -65,51 +67,52 @@ function ItemDetailModal({ item, realmId, onClose }) {
                 </div>
 
                 {/* Tab Content */}
-                <div className="modal-body">
+                <div className={styles.modalBody}>
                     {loading ? (
-                        <div className="loading-state">
-                            <div className="spinner"></div>
+                        <div className={styles.loadingState}>
+                            <div className={styles.spinner}></div>
                             <p>Chargement...</p>
                         </div>
                     ) : (
                         <>
                             {/* Prix par Serveur */}
                             {activeTab === 'prices' && (
-                                <div className="tab-content">
+                                <div className={styles.tabContent}>
                                     <h3>📊 Prix sur tous les serveurs</h3>
-                                    <RealmPriceTable realmPrices={realmPrices} />
+                                    <RealmPriceTable realmPrices={realmPrices} styles={styles} />
                                 </div>
                             )}
 
                             {/* Historique Prix */}
                             {activeTab === 'history' && (
-                                <div className="tab-content">
+                                <div className={styles.tabContent}>
                                     <h3>📈 Historique des prix (21 jours)</h3>
-                                    <PriceChart data={chartData} />
+                                    <PriceChart data={chartData} styles={styles} />
                                 </div>
                             )}
 
                             {/* Volume */}
                             {activeTab === 'volume' && (
-                                <div className="tab-content">
+                                <div className={styles.tabContent}>
                                     <h3>📦 Évolution du volume</h3>
-                                    <VolumeChart data={chartData} />
+                                    <VolumeChart data={chartData} styles={styles} />
                                 </div>
                             )}
 
                             {/* Meilleurs Serveurs */}
                             {activeTab === 'best' && (
-                                <div className="tab-content">
+                                <div className={styles.tabContent}>
                                     <h3>🏆 Meilleurs serveurs pour vendre</h3>
-                                    <BestServersTable bestServers={bestServers} />
+                                    <BestServersTable bestServers={bestServers} styles={styles} />
                                 </div>
                             )}
 
                             {/* Statistiques */}
                             {activeTab === 'stats' && (
-                                <div className="tab-content">
+                                <div className={styles.tabContent}>
                                     <h3>📉 Statistiques détaillées</h3>
-                                    <div className="stats-grid">
+                                    <div className={`${styles.statsGrid} stats-grid`}>
+                                        {/* Reuse ItemMetrics logic or custom stats */}
                                         <div className="stat-card">
                                             <div className="stat-value">{realmPrices.filter(p => p.min_price).length}</div>
                                             <div className="stat-label">Serveurs avec stock</div>
@@ -126,9 +129,9 @@ function ItemDetailModal({ item, realmId, onClose }) {
 
                             {/* Craft */}
                             {activeTab === 'craft' && (
-                                <div className="tab-content">
+                                <div className={styles.tabContent}>
                                     <h3>🔨 Informations de craft</h3>
-                                    <CraftInfo item={item} itemDetail={itemDetail} />
+                                    <CraftInfo item={item} itemDetail={itemDetail} styles={styles} />
                                 </div>
                             )}
                         </>

@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import PriceDisplay from './PriceDisplay'
 import { formatTimeDiff, getFlagUrl } from '../utils/formatters'
-import './ItemDetailModal.css'
+import styles from './PetDetail/PetDetail.module.css'
 
 function PetDetailModal({ pet, realmId, onClose }) {
     const [activeTab, setActiveTab] = useState('best')
@@ -53,13 +53,13 @@ function PetDetailModal({ pet, realmId, onClose }) {
     ]
 
     // Prepare chart data from price_history
-    // Prepare chart data from price_history
     const chartData = (petDetail?.price_history || []).map(h => ({
         date: new Date(h.recorded_at).toLocaleDateString(),
         timestamp: new Date(h.recorded_at).getTime(),
         min_price: h.min_price / 10000,
         avg_price: h.avg_price ? h.avg_price / 10000 : null,
         quantity: h.total_quantity,
+        dateLabel: new Date(h.recorded_at).toLocaleDateString() // Added for consistent accessing
     })).sort((a, b) => a.timestamp - b.timestamp)
 
     // Sortable table logic
@@ -88,15 +88,11 @@ function PetDetailModal({ pet, realmId, onClose }) {
         })
     }, [realmPrices, sortConfig])
 
-    // Best servers for buy or sell - using consistent scoring algorithm
-    // Score = (Price × 40%) + (Quantity × 40%) + (Population × 20%)
+    // Best servers logic
     const bestServers = useMemo(() => {
-        // Filter servers with valid prices and exclude Russian servers (like Streamlit)
         const filtered = realmPrices.filter(p => p.min_price && p.region !== 'ru_RU')
-
         if (filtered.length < 2) return filtered
 
-        // Get min/max for normalization
         const prices = filtered.map(p => p.min_price)
         const quantities = filtered.map(p => p.total_quantity || 0)
 
@@ -105,53 +101,30 @@ function PetDetailModal({ pet, realmId, onClose }) {
         const maxQty = Math.max(...quantities) || 1
         const minQty = Math.min(...quantities)
 
-        // Population scores (like Streamlit)
         const populationScores = {
-            'FULL': 1.0,
-            'HIGH': 0.8,
-            'MEDIUM': 0.6,
-            'LOW': 0.4,
-            'NEW_PLAYERS': 0.3,
-            'UNKNOWN': 0.5
+            'FULL': 1.0, 'HIGH': 0.8, 'MEDIUM': 0.6, 'LOW': 0.4, 'NEW_PLAYERS': 0.3, 'UNKNOWN': 0.5
         }
-
         const populationLabels = {
-            'FULL': '🔴 Complet',
-            'HIGH': '🟠 Élevée',
-            'MEDIUM': '🟡 Moyenne',
-            'LOW': '🟢 Faible',
-            'NEW_PLAYERS': '🆕 Nouveaux',
-            'UNKNOWN': '❓ Inconnu'
+            'FULL': '🔴 Complet', 'HIGH': '🟠 Élevée', 'MEDIUM': '🟡 Moyenne', 'LOW': '🟢 Faible', 'NEW_PLAYERS': '🆕 Nouveaux', 'UNKNOWN': '❓ Inconnu'
         }
 
-        // Calculate scores for each server
         const scored = filtered.map(server => {
             const price = server.min_price
             const qty = server.total_quantity || 0
             const popType = server.population || 'UNKNOWN'
 
-            // Normalize 0-1
-            const priceNorm = maxPrice !== minPrice
-                ? (price - minPrice) / (maxPrice - minPrice)
-                : 0.5
-            const qtyNorm = maxQty !== minQty
-                ? (qty - minQty) / (maxQty - minQty)
-                : 0.5
+            const priceNorm = maxPrice !== minPrice ? (price - minPrice) / (maxPrice - minPrice) : 0.5
+            const qtyNorm = maxQty !== minQty ? (qty - minQty) / (maxQty - minQty) : 0.5
             const popScore = populationScores[popType] || 0.5
 
             let score
             if (bestMode === 'sell') {
-                // For selling: high price is good, high quantity means competition (bad)
                 score = (priceNorm * 0.4) + ((1 - qtyNorm) * 0.4) + (popScore * 0.2)
             } else {
-                // For buying: low price is good, high quantity means more choice (good)
                 score = ((1 - priceNorm) * 0.4) + (qtyNorm * 0.4) + (popScore * 0.2)
             }
 
-            // Penalty if no quantity (item not available)
-            if (qty === 0) {
-                score = score * 0.1
-            }
+            if (qty === 0) score = score * 0.1
 
             return {
                 ...server,
@@ -161,7 +134,6 @@ function PetDetailModal({ pet, realmId, onClose }) {
             }
         })
 
-        // Sort by score descending and take top 10
         return scored.sort((a, b) => b.score - a.score).slice(0, 10)
     }, [realmPrices, bestMode])
 
@@ -169,10 +141,10 @@ function PetDetailModal({ pet, realmId, onClose }) {
     const CustomTooltip = ({ active, payload, label }) => {
         if (active && payload && payload.length) {
             return (
-                <div className="custom-chart-tooltip">
-                    <p className="tooltip-date">{label}</p>
+                <div className={styles.customChartTooltip}>
+                    <p className={styles.tooltipDate}>{label}</p>
                     {payload.map((p, i) => (
-                        <p key={i} style={{ color: p.color }}>
+                        <p key={i} style={{ color: p.color, margin: 0 }}>
                             {p.name}: {
                                 p.dataKey === 'min_price' || p.dataKey === 'avg_price'
                                     ? `${p.value?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}g`
@@ -188,27 +160,22 @@ function PetDetailModal({ pet, realmId, onClose }) {
 
     const getQualityColor = (quality) => {
         const colors = {
-            poor: '#9d9d9d',
-            common: '#ffffff',
-            uncommon: '#1eff00',
-            rare: '#0070dd',
-            epic: '#a335ee',
-            legendary: '#ff8000'
+            poor: '#9d9d9d', common: '#ffffff', uncommon: '#1eff00', rare: '#0070dd', epic: '#a335ee', legendary: '#ff8000'
         }
         return colors[quality?.toLowerCase()] || colors.common
     }
 
     return (
-        <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className={styles.modalOverlay} onClick={onClose}>
+            <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
-                <div className="modal-header">
-                    <div className="modal-title-row" style={{ flexWrap: 'nowrap' }}>
+                <div className={styles.modalHeader}>
+                    <div className={styles.modalTitleRow}>
                         {pet.icon_url && (
-                            <img src={pet.icon_url} alt="" className="modal-icon" style={{ flexShrink: 0 }} />
+                            <img src={pet.icon_url} alt="" className={styles.modalIcon} />
                         )}
                         <div style={{ minWidth: 0 }}>
-                            <h2 className="modal-title" style={{ color: getQualityColor(pet.quality), whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <h2 className={styles.modalTitle} style={{ color: getQualityColor(pet.quality) }}>
                                 🐾 {pet.name}
                             </h2>
                             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -217,39 +184,41 @@ function PetDetailModal({ pet, realmId, onClose }) {
                             </div>
                         </div>
                     </div>
-                    <button className="modal-close" onClick={onClose}>✕</button>
+                    <button className={styles.modalClose} onClick={onClose}>✕</button>
                 </div>
 
                 {/* Metrics */}
-                <div className="stats-grid modal-metrics">
-                    <div className="stat-card">
-                        <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                            <PriceDisplay value={pet.min_price} />
+                <div className={styles.modalMetrics}>
+                    <div className={`${styles.statsGrid} stats-grid`}>
+                        <div className="stat-card">
+                            <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                                <PriceDisplay value={pet.min_price} />
+                            </div>
+                            <div className="stat-label">💰 Prix Minimum</div>
                         </div>
-                        <div className="stat-label">💰 Prix Minimum</div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-value">{pet.total_quantity ?? 'N/A'}</div>
-                        <div className="stat-label">📦 Quantité dispo</div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-value" style={{ color: getQualityColor(pet.quality) }}>
-                            {pet.quality || 'N/A'}
+                        <div className="stat-card">
+                            <div className="stat-value">{pet.total_quantity ?? 'N/A'}</div>
+                            <div className="stat-label">📦 Quantité dispo</div>
                         </div>
-                        <div className="stat-label">⭐ Qualité</div>
-                    </div>
-                    <div className="stat-card">
-                        <div className="stat-value">{pet.is_tradable ? '✅ Oui' : '❌ Non'}</div>
-                        <div className="stat-label">💱 Échangeable</div>
+                        <div className="stat-card">
+                            <div className="stat-value" style={{ color: getQualityColor(pet.quality) }}>
+                                {pet.quality || 'N/A'}
+                            </div>
+                            <div className="stat-label">⭐ Qualité</div>
+                        </div>
+                        <div className="stat-card">
+                            <div className="stat-value">{pet.is_tradable ? '✅ Oui' : '❌ Non'}</div>
+                            <div className="stat-label">💱 Échangeable</div>
+                        </div>
                     </div>
                 </div>
 
                 {/* Tabs */}
-                <div className="modal-tabs">
+                <div className={styles.modalTabs}>
                     {tabs.map((tab) => (
                         <button
                             key={tab.id}
-                            className={`modal-tab ${activeTab === tab.id ? 'active' : ''}`}
+                            className={`${styles.modalTab} ${activeTab === tab.id ? styles.activeTab : ''}`}
                             onClick={() => setActiveTab(tab.id)}
                         >
                             <span>{tab.icon}</span>
@@ -259,17 +228,17 @@ function PetDetailModal({ pet, realmId, onClose }) {
                 </div>
 
                 {/* Tab Content */}
-                <div className="modal-body">
+                <div className={styles.modalBody}>
                     {loading ? (
-                        <div className="loading-state">
-                            <div className="spinner"></div>
+                        <div className={styles.loadingState}>
+                            <div className={styles.spinner}></div>
                             <p>Chargement...</p>
                         </div>
                     ) : (
                         <>
                             {/* Meilleurs Serveurs */}
                             {activeTab === 'best' && (
-                                <div className="tab-content">
+                                <div className={styles.tabContent}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-md)' }}>
                                         <h3 style={{ margin: 0 }}>🏆 Meilleurs Serveurs</h3>
                                         <div className="mode-toggle" style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
@@ -304,8 +273,8 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                             </p>
 
                                             {/* Desktop Table */}
-                                            <div className="table-container" style={{ maxHeight: '400px' }}>
-                                                <table className="table">
+                                            <div className={styles.tableContainer} style={{ maxHeight: '400px' }}>
+                                                <table className={styles.table}>
                                                     <thead>
                                                         <tr>
                                                             <th style={{ width: 40 }}>#</th>
@@ -347,20 +316,19 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                             </div>
 
                                             {/* Mobile List View */}
-                                            <div className="mobile-modal-grid">
+                                            <div className={styles.mobileModalGrid}>
                                                 {bestServers.map((server, i) => (
-                                                    <div className="mobile-list-item" key={server.realm_id}>
-                                                        {/* Header: Rank + Server + Score */}
-                                                        <div className="mobile-list-header">
-                                                            <div className="realm-info">
-                                                                <span className="rank-emoji">
+                                                    <div className={styles.mobileListItem} key={server.realm_id}>
+                                                        <div className={styles.mobileListHeader}>
+                                                            <div className={styles.realmInfo}>
+                                                                <span className={styles.rankEmoji}>
                                                                     {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
                                                                 </span>
                                                                 {server.region && (
                                                                     <img
                                                                         src={getFlagUrl(server.region)}
                                                                         alt=""
-                                                                        className="realm-flag"
+                                                                        className={styles.realmFlag}
                                                                     />
                                                                 )}
                                                                 <span className="realm-name">{server.realm_name}</span>
@@ -369,13 +337,11 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                                 {server.scorePercent}%
                                                             </span>
                                                         </div>
-
-                                                        {/* Details: Price, Qty, Pop */}
-                                                        <div className="mobile-list-row">
+                                                        <div className={styles.mobileListRow}>
                                                             <span>Prix: <PriceDisplay value={server.min_price} /></span>
                                                             <span className="text-muted">Pop: {server.populationLabel || transformPop(server.population)}</span>
                                                         </div>
-                                                        <div className="mobile-list-row">
+                                                        <div className={styles.mobileListRow}>
                                                             <span className="text-muted">Qté: {server.total_quantity ?? 'N/A'}</span>
                                                             <span className="text-muted">{bestMode === 'sell' ? 'Vente' : 'Achat'}</span>
                                                         </div>
@@ -389,7 +355,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
 
                             {/* Prix par Serveur */}
                             {activeTab === 'prices' && (
-                                <div className="tab-content">
+                                <div className={styles.tabContent}>
                                     <h3>📊 Prix sur tous les serveurs</h3>
                                     <p className="text-muted" style={{ marginBottom: 'var(--spacing-sm)', fontSize: '0.75rem' }}>
                                         💡 Cliquez sur un en-tête de colonne pour trier
@@ -399,8 +365,8 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                     ) : (
                                         <>
                                             {/* Desktop Table */}
-                                            <div className="table-container" style={{ maxHeight: '500px' }}>
-                                                <table className="table">
+                                            <div className={styles.tableContainer} style={{ maxHeight: '500px' }}>
+                                                <table className={styles.table}>
                                                     <thead>
                                                         <tr>
                                                             <th onClick={() => handleSort('realm_name')} style={{ cursor: 'pointer' }}>
@@ -438,23 +404,23 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                             </div>
 
                                             {/* Mobile List View */}
-                                            <div className="mobile-modal-grid">
+                                            <div className={styles.mobileModalGrid}>
                                                 {sortedRealmPrices.map((price) => (
-                                                    <div className="mobile-list-item" key={price.realm_id}>
-                                                        <div className="mobile-list-header">
-                                                            <div className="realm-info">
+                                                    <div className={styles.mobileListItem} key={price.realm_id}>
+                                                        <div className={styles.mobileListHeader}>
+                                                            <div className={styles.realmInfo}>
                                                                 {price.region && (
                                                                     <img
                                                                         src={getFlagUrl(price.region)}
                                                                         alt=""
-                                                                        className="realm-flag"
+                                                                        className={styles.realmFlag}
                                                                     />
                                                                 )}
                                                                 <span className="realm-name">{price.realm_name}</span>
                                                             </div>
                                                             <PriceDisplay value={price.min_price} />
                                                         </div>
-                                                        <div className="mobile-list-row">
+                                                        <div className={styles.mobileListRow}>
                                                             <span className="text-muted">Qté: {price.total_quantity ?? 'N/A'}</span>
                                                             <span className="text-muted">{formatTimeDiff(price.recorded_at)}</span>
                                                         </div>
@@ -468,7 +434,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
 
                             {/* Historique Prix */}
                             {activeTab === 'history' && (
-                                <div className="tab-content">
+                                <div className={styles.tabContent}>
                                     <h3>📈 Historique des prix (21 jours)</h3>
                                     {chartData.length > 0 ? (
                                         <div style={{ width: '100%', height: 400 }}>
@@ -525,7 +491,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
 
                             {/* Volume */}
                             {activeTab === 'volume' && (
-                                <div className="tab-content">
+                                <div className={styles.tabContent}>
                                     <h3>📦 Évolution du volume</h3>
                                     {chartData.length > 0 ? (
                                         <div style={{ width: '100%', height: 400 }}>
@@ -555,9 +521,9 @@ function PetDetailModal({ pet, realmId, onClose }) {
 
                             {/* Statistiques */}
                             {activeTab === 'stats' && (
-                                <div className="tab-content">
+                                <div className={styles.tabContent}>
                                     <h3>📉 Statistiques</h3>
-                                    <div className="stats-grid">
+                                    <div className={`${styles.statsGrid} stats-grid`}>
                                         <div className="stat-card">
                                             <div className="stat-value">{realmPrices.filter(p => p.min_price).length}</div>
                                             <div className="stat-label">Serveurs avec stock</div>

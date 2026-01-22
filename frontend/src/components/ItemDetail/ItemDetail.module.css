@@ -1,0 +1,427 @@
+/* Item Detail Modal Styles - Modularized */
+
+.modalOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: var(--spacing-lg);
+}
+
+.modalContent {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    width: 95%;
+    max-width: 1200px;
+    height: 90vh;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    animation: modalAppear 0.2s ease;
+}
+
+@keyframes modalAppear {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.modalHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-lg);
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+}
+
+.modalTitleRow {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    min-width: 0;
+    /* Enable truncation for children */
+}
+
+.modalIcon {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-md);
+    border: 2px solid var(--accent-gold);
+    flex-shrink: 0;
+}
+
+.modalTitle {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.modalClose {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1.25rem;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.modalClose:hover {
+    background: var(--color-danger-bg);
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+}
+
+.modalMetrics {
+    padding: var(--spacing-lg);
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Stats Grid Override within Modal */
+.modalMetrics .statsGrid {
+    margin-bottom: 0;
+}
+
+.modalTabs {
+    display: flex;
+    overflow-x: auto;
+    padding: 0 var(--spacing-lg);
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modalTab {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all var(--transition-fast);
+}
+
+.modalTab:hover {
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+}
+
+.activeTab {
+    color: var(--accent-gold);
+    border-bottom-color: var(--accent-gold);
+}
+
+.modalBody {
+    flex: 1;
+    padding: var(--spacing-lg);
+    overflow-y: auto;
+}
+
+.tabContent h3 {
+    margin-bottom: var(--spacing-md);
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+
+.loadingState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: calc(var(--spacing-xl) * 2);
+    color: var(--text-muted);
+}
+
+.spinner {
+    width: 32px;
+    height: 32px;
+    margin-bottom: var(--spacing-md);
+    border: 2px solid var(--border-color);
+    border-top-color: var(--accent-gold);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Craft Info */
+.craftInfo p {
+    margin-bottom: var(--spacing-sm);
+}
+
+.reagentsSection {
+    margin-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+    padding-top: 1rem;
+}
+
+.reagentsList {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.reagentItem {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+}
+
+/* Score badges */
+.scoreBadge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.scoreHigh {
+    background: rgba(40, 167, 69, 0.2);
+    color: #28a745;
+}
+
+.scoreMedium {
+    background: rgba(255, 152, 0, 0.2);
+    color: #FF9800;
+}
+
+.scoreLow {
+    background: rgba(220, 53, 69, 0.2);
+    color: #dc3545;
+}
+
+/* Charts */
+.customChartTooltip {
+    background: rgba(0, 0, 0, 0.9);
+    border: 1px solid var(--border-color);
+    padding: var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.tooltipDate {
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+/* Tables - Sticky Header Fix */
+.tableContainer {
+    overflow-y: auto;
+    position: relative;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    isolation: isolate;
+    z-index: 1;
+}
+
+.table {
+    width: 100%;
+    border-collapse: separate;
+    /* Required for sticky header border fix */
+    border-spacing: 0;
+}
+
+.table th {
+    position: sticky;
+    top: 0;
+    background-color: var(--bg-tertiary);
+    z-index: 10;
+    padding: var(--spacing-sm) var(--spacing-md);
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-muted);
+    border-bottom: 2px solid var(--border-color);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.table td {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+    background-clip: padding-box;
+    position: relative;
+    z-index: 1;
+}
+
+.table tr:last-child td {
+    border-bottom: none;
+}
+
+.table td img,
+.table td :global(.price-display) img,
+.table td :global(.modal-icon) {
+    transform: none !important;
+    z-index: 1 !important;
+    position: static !important;
+}
+
+/* Mobile List View */
+.mobileModalGrid {
+    display: none;
+}
+
+.mobileListItem {
+    /* Styles handled by global classes usually, but here we scope them */
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.mobileListHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 500;
+    font-size: 0.9rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 4px;
+    margin-bottom: 4px;
+}
+
+.realmInfo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.realmFlag {
+    width: 20px;
+    height: auto;
+    border-radius: 2px;
+}
+
+.mobileListRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.rankEmoji {
+    font-size: 1.1rem;
+    min-width: 24px;
+    text-align: center;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .modalOverlay {
+        padding: 0;
+        align-items: flex-end;
+    }
+
+    .modalContent {
+        width: 100%;
+        max-width: 100%;
+        height: 100dvh;
+        max-height: 100dvh;
+        border-radius: 0;
+        border: none;
+        margin: 0;
+    }
+
+    .modalHeader {
+        padding: var(--spacing-sm) var(--spacing-md);
+        min-height: 60px;
+        gap: var(--spacing-sm);
+    }
+
+    .modalClose {
+        position: static;
+        width: 32px;
+        height: 32px;
+    }
+
+    .modalTitle {
+        font-size: 0.95rem;
+        white-space: normal;
+    }
+
+    .modalMetrics {
+        padding: var(--spacing-sm) var(--spacing-md);
+    }
+
+    /* We need to target the global grid class if we use it, OR specific one */
+    .statsGrid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--spacing-sm);
+    }
+
+    .modalMetrics .statsGrid {
+        margin-bottom: 0;
+    }
+
+    .modalTabs {
+        padding: 0;
+        justify-content: flex-start;
+    }
+
+    .modalTab {
+        padding: 0.625rem var(--spacing-md);
+        font-size: 0.8rem;
+        flex: 1;
+        justify-content: center;
+    }
+
+    .modalBody {
+        padding: var(--spacing-md);
+    }
+
+    .tableContainer {
+        display: none !important;
+    }
+
+    .mobileModalGrid {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-sm);
+        padding-bottom: var(--spacing-lg);
+    }
+}
