@@ -1,97 +1,28 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { useRealm } from '../context/RealmContext'
+import { useItems } from '../hooks/useItems'
 import PriceDisplay from '../components/PriceDisplay'
 import TrendBadge from '../components/TrendBadge'
 import ItemDetailModal from '../components/ItemDetailModal'
-import { formatTimeDiff, formatVolumeChange, debounce } from '../utils/formatters'
+import { formatTimeDiff, formatVolumeChange } from '../utils/formatters'
 import './ItemsPage.css'
 
 function ItemsPage() {
     const { selectedRealm } = useRealm()
-    const [items, setItems] = useState([])
-    const [categories, setCategories] = useState([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState(null)
     const [selectedItem, setSelectedItem] = useState(null)
 
-    // Filters & Pagination
-    const [search, setSearch] = useState('')
-    const [debouncedSearch, setDebouncedSearch] = useState('')
-    const [category, setCategory] = useState('')
-    const [sortBy, setSortBy] = useState('min_price')
-    const [sortOrder, setSortOrder] = useState('desc')
-    const [page, setPage] = useState(1)
-    const [totalPages, setTotalPages] = useState(1)
-    const [total, setTotal] = useState(0)
-    const pageSize = 50
+    const {
+        items, loading, error, categories,
+        total, totalPages,
+        search, setSearch,
+        category, setCategory,
+        sortBy, setSortBy,
+        sortOrder, setSortOrder,
+        page, setPage,
+        handleSort, getSortIcon
+    } = useItems(selectedRealm)
 
-    // Debounce search input
-    const debouncedSetSearch = useCallback(
-        debounce((value) => {
-            setDebouncedSearch(value)
-            setPage(1)
-        }, 300),
-        []
-    )
-
-    useEffect(() => {
-        debouncedSetSearch(search)
-    }, [search, debouncedSetSearch])
-
-    // Fetch items
-    useEffect(() => {
-        if (!selectedRealm) return
-
-        const fetchItems = async () => {
-            setLoading(true)
-            setError(null)
-
-            try {
-                const params = new URLSearchParams({
-                    realm_id: selectedRealm.id,
-                    page: page.toString(),
-                    page_size: pageSize.toString(),
-                    sort_by: sortBy,
-                    sort_order: sortOrder
-                })
-
-                if (debouncedSearch) params.append('search', debouncedSearch)
-                if (category) params.append('category', category)
-
-                const response = await fetch(`/api/items?${params}`)
-                if (!response.ok) throw new Error('Failed to fetch items')
-
-                const data = await response.json()
-                setItems(data.items || [])
-                setTotal(data.total || 0)
-                setTotalPages(Math.ceil((data.total || 0) / pageSize))
-            } catch (err) {
-                setError(err.message)
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        fetchItems()
-    }, [selectedRealm, debouncedSearch, category, sortBy, sortOrder, page])
-
-    // Fetch categories
-    useEffect(() => {
-        const fetchCategories = async () => {
-            try {
-                const response = await fetch('/api/items/categories')
-                if (response.ok) {
-                    const data = await response.json()
-                    setCategories(data.categories || [])
-                }
-            } catch (err) {
-                console.error('Failed to fetch categories:', err)
-            }
-        }
-        fetchCategories()
-    }, [])
-
-    // Helper for quality colors (reused from CollectionPage)
+    // Helper for quality colors
     const getQualityColor = (quality) => {
         const colors = {
             poor: '#9d9d9d',
@@ -102,22 +33,6 @@ function ItemsPage() {
             legendary: '#ff8000'
         }
         return colors[quality?.toLowerCase()] || colors.common
-    }
-
-    // Handle sort column click
-    const handleSort = (column) => {
-        if (sortBy === column) {
-            setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
-        } else {
-            setSortBy(column)
-            setSortOrder(column === 'min_price' || column === 'trend' ? 'desc' : 'asc')
-        }
-        setPage(1)
-    }
-
-    const getSortIcon = (column) => {
-        if (sortBy !== column) return ' ⇅'
-        return sortOrder === 'asc' ? ' ↑' : ' ↓'
     }
 
     if (!selectedRealm) {
@@ -163,7 +78,7 @@ function ItemsPage() {
                     <select
                         className="select"
                         value={category}
-                        onChange={(e) => { setCategory(e.target.value); setPage(1); }}
+                        onChange={(e) => setCategory(e.target.value)}
                     >
                         <option value="">Toutes</option>
                         {categories.map((cat) => (

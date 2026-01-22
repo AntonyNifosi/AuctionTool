@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
+import { api } from '../services/api'
 
 const RealmContext = createContext()
 
@@ -36,22 +37,18 @@ export function RealmProvider({ children }) {
 
     const fetchRealms = async () => {
         try {
-            const response = await fetch('/api/realms')
-            if (response.ok) {
-                const data = await response.json()
-                setRealms(data)
-                // Set default realm (first one or saved preference)
-                const savedRealmId = localStorage.getItem('selectedRealmId')
-                if (savedRealmId) {
-                    const saved = data.find(r => r.id === parseInt(savedRealmId))
-                    if (saved) {
-                        setSelectedRealm(saved)
-                    } else if (data.length > 0) {
-                        setSelectedRealm(data[0])
-                    }
+            const data = await api.realms.getAll()
+            setRealms(data)
+            const savedRealmId = localStorage.getItem('selectedRealmId')
+            if (savedRealmId) {
+                const saved = data.find(r => r.id === parseInt(savedRealmId))
+                if (saved) {
+                    setSelectedRealm(saved)
                 } else if (data.length > 0) {
                     setSelectedRealm(data[0])
                 }
+            } else if (data.length > 0) {
+                setSelectedRealm(data[0])
             }
         } catch (error) {
             console.error('Failed to fetch realms:', error)
@@ -62,16 +59,13 @@ export function RealmProvider({ children }) {
 
     const fetchUpdateStatus = async () => {
         try {
-            const response = await fetch('/api/update/status')
-            if (response.ok) {
-                const data = await response.json()
-                setUpdateStatus({
-                    isRunning: data.is_running,
-                    progress: data.progress,
-                    statusMessage: data.status_message,
-                    lastUpdateTime: data.last_update_time
-                })
-            }
+            const data = await api.update.getStatus()
+            setUpdateStatus({
+                isRunning: data.is_running,
+                progress: data.progress,
+                statusMessage: data.status_message,
+                lastUpdateTime: data.last_update_time
+            })
         } catch (error) {
             // Silent fail for status check
         }
@@ -107,11 +101,11 @@ export function RealmProvider({ children }) {
 
     const startUpdate = async (force = false) => {
         try {
-            const params = new URLSearchParams({ force: force.toString() })
+            const params = { force: force }
             if (selectedRealm) {
-                params.append('priority_realm_id', selectedRealm.id.toString())
+                params.priority_realm_id = selectedRealm.id
             }
-            const response = await fetch(`/api/update/start?${params}`, { method: 'POST' })
+            const response = await api.update.start(params)
             if (response.ok) {
                 fetchUpdateStatus()
             }
