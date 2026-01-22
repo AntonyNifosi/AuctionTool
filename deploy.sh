@@ -8,8 +8,11 @@ ARCHIVE_NAME="deploy_package.tar.gz"
 
 echo "🚀 Début du déploiement vers $SERVER_IP..."
 
-# 1. Créer une archive locale (en excluant les dossiers lourds/inutiles)
-echo "📦 Création de l'archive..."
+# 1. & 2. & 3. Créer l'archive, l'envoyer et déployer en UNE SEULE connexion SSH (1 seul mot de passe)
+echo "📦 Création de l'archive et déploiement en cours..."
+
+# On pipe la sortie de tar (stdout) directement dans l'entrée de ssh (stdin)
+# Sur le serveur, 'cat > ...' lit ce flux pour créer le fichier
 tar --exclude='node_modules' \
     --exclude='venv' \
     --exclude='.git' \
@@ -19,42 +22,30 @@ tar --exclude='node_modules' \
     --exclude='housing_data_old.db' \
     --exclude='scheduler.log' \
     --exclude='deploy_package.tar.gz' \
-    -czf $ARCHIVE_NAME .
+    -czf - . | ssh $SERVER_USER@$SERVER_IP "
+        # 1. Récupérer l'archive depuis le flux
+        echo \"📥 Réception de l'archive sur le serveur...\"
+        cat > /root/$ARCHIVE_NAME
 
-echo "✅ Archive créée ($ARCHIVE_NAME)"
-
-# 2. Copier l'archive sur le serveur
-echo "📤 Envoi des fichiers vers le serveur..."
-scp $ARCHIVE_NAME $SERVER_USER@$SERVER_IP:/root/$ARCHIVE_NAME
-
-# 3. Exécuter les commandes sur le serveur via SSH
-echo "🔧 Exécution des commandes sur le serveur..."
-ssh $SERVER_USER@$SERVER_IP << EOF
-    # Créer le dossier s'il n'existe pas
-    mkdir -p $REMOTE_DIR
-    
-    # Déplacer l'archive
-    mv /root/$ARCHIVE_NAME $REMOTE_DIR/
-    
-    # Aller dans le dossier
-    cd $REMOTE_DIR
-    
-    # Extraire l'archive (écrase les anciens fichiers sauf la DB qui a été exclue de l'archive)
-    tar -xzf $ARCHIVE_NAME
-    
-    # Supprimer l'archive
-    rm $ARCHIVE_NAME
-    
-    # Reconstruire et relancer les containers
-    echo "🔄 Reconstruction des containers..."
-    docker compose down
-    docker compose up -d --build
-    
-    # Nettoyage
-    docker image prune -f
-EOF
-
-# 4. Nettoyage local
-rm $ARCHIVE_NAME
+        # 2. Préparer le dossier
+        echo \"📂 Préparation des dossiers...\"
+        mkdir -p $REMOTE_DIR
+        mv /root/$ARCHIVE_NAME $REMOTE_DIR/
+        cd $REMOTE_DIR
+        
+        # 3. Extraire
+        echo \"📦 Extraction...\"
+        tar -xzf $ARCHIVE_NAME
+        rm $ARCHIVE_NAME
+        
+        # 4. Docker
+        echo \"🔄 Reconstruction des containers...\"
+        docker compose down
+        docker compose up -d --build
+        
+        # 5. Nettoyage
+        docker image prune -f
+        echo \"✨ Déploiement terminé sur le serveur !\"
+"
 
 echo "✅ Déploiement terminé avec succès !"
