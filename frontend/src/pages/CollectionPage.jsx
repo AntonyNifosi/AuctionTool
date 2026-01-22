@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useRealm } from '../context/RealmContext'
 import PriceDisplay from '../components/PriceDisplay'
+import PetDetailModal from '../components/PetDetailModal'
 import './CollectionPage.css'
 
 function CollectionPage() {
@@ -10,6 +11,7 @@ function CollectionPage() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
     const [collection, setCollection] = useState(null)
+    const [selectedPet, setSelectedPet] = useState(null)
 
     // Pre-fill realm
     useEffect(() => {
@@ -86,6 +88,9 @@ function CollectionPage() {
                 </h1>
                 <p className="page-subtitle">
                     Consultez votre collection de pets Battle.net et estimez sa valeur
+                </p>
+                <p className="page-subtitle">
+                    💡 Cliquez sur un pet pour voir les détails
                 </p>
             </div>
 
@@ -193,30 +198,67 @@ function CollectionPage() {
                     {/* Mobile Grid View (Visible only on mobile) */}
                     <div className="mobile-grid">
                         {collection.pets.map((pet, index) => (
-                            <div className="mobile-card" key={`card-${pet.pet_id}-${index}`}>
-                                <div className="mobile-card-icon-wrapper">
-                                    {pet.icon_url ? (
-                                        <img src={pet.icon_url} alt="" className="mobile-card-icon" loading="lazy" />
-                                    ) : (
-                                        <div className="mobile-card-icon placeholder">🐾</div>
-                                    )}
-                                </div>
-                                <div className="mobile-card-content">
-                                    <div className="mobile-card-header">
+                            <div
+                                className="mobile-card"
+                                key={`card-${pet.pet_id}-${index}`}
+                                onClick={() => setSelectedPet(pet)}
+                            >
+                                <div className="mobile-card-header">
+                                    <div className="mobile-card-icon-wrapper">
+                                        {pet.icon_url ? (
+                                            <img src={pet.icon_url} alt="" className="mobile-card-icon" loading="lazy" />
+                                        ) : (
+                                            <div className="mobile-card-icon placeholder">🐾</div>
+                                        )}
+                                    </div>
+                                    <div className="mobile-card-title-row">
                                         <div className="mobile-card-name" style={{ color: getQualityColor(pet.quality) }}>
                                             {pet.name}
                                         </div>
                                         {pet.is_tradable && <span title="Échangeable">✅</span>}
                                     </div>
+                                </div>
 
-                                    <div className="mobile-card-meta">
-                                        <span>Niv. {pet.level}</span>
-                                        <span>•</span>
-                                        <span style={{ color: getQualityColor(pet.quality) }}>{pet.quality}</span>
+
+                                <div className="mobile-card-body">
+                                    <div className="mobile-card-row">
+                                        <div className="mobile-card-meta">
+                                            <span>Niv. {pet.level}</span>
+                                            <span>•</span>
+                                            <span style={{ color: getQualityColor(pet.quality) }}>{pet.quality}</span>
+                                        </div>
                                     </div>
 
-                                    <div className="mobile-card-footer">
+                                    <div className="mobile-card-row">
+                                        <span className="mobile-card-label">Prix</span>
                                         <PriceDisplay value={pet.min_price} />
+                                    </div>
+
+                                    <div className="mobile-card-row">
+                                        <span className="mobile-card-label">Lien</span>
+                                        <a
+                                            href={`https://fr.wowhead.com/battle-pet/${pet.pet_id}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            title="Voir sur Wowhead"
+                                            className="wowhead-link"
+                                            style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: 24,
+                                                height: 24,
+                                                background: '#2b323d',
+                                                borderRadius: 4,
+                                                textDecoration: 'none',
+                                                fontSize: 12,
+                                                fontWeight: 'bold',
+                                                color: '#f9b617'
+                                            }}
+                                        >
+                                            W
+                                        </a>
                                     </div>
                                 </div>
                             </div>
@@ -235,11 +277,17 @@ function CollectionPage() {
                                     <th>Type</th>
                                     <th>Prix</th>
                                     <th>Échangeable</th>
+                                    <th style={{ width: 50 }}>Lien</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {collection.pets.map((pet, index) => (
-                                    <tr key={`${pet.pet_id}-${index}`}>
+                                    <tr
+                                        key={`${pet.pet_id}-${index}`}
+                                        className="clickable-row"
+                                        onClick={() => setSelectedPet(pet)}
+                                        style={{ cursor: 'pointer' }}
+                                    >
                                         <td>
                                             {pet.icon_url ? (
                                                 <img src={pet.icon_url} alt="" className="item-icon" loading="lazy" />
@@ -263,12 +311,46 @@ function CollectionPage() {
                                             <PriceDisplay value={pet.min_price} />
                                         </td>
                                         <td>{pet.is_tradable ? '✅' : '❌'}</td>
+                                        <td>
+                                            <a
+                                                href={`https://fr.wowhead.com/battle-pet/${pet.pet_id}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                onClick={(e) => e.stopPropagation()}
+                                                title="Voir sur Wowhead"
+                                                className="wowhead-link"
+                                                style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    width: 24,
+                                                    height: 24,
+                                                    background: '#2b323d',
+                                                    borderRadius: 4,
+                                                    textDecoration: 'none',
+                                                    fontSize: 12,
+                                                    fontWeight: 'bold',
+                                                    color: '#f9b617'
+                                                }}
+                                            >
+                                                W
+                                            </a>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
                 </>
+            )}
+
+            {/* Pet Detail Modal */}
+            {selectedPet && (
+                <PetDetailModal
+                    pet={selectedPet}
+                    realmId={selectedRealm?.id}
+                    onClose={() => setSelectedPet(null)}
+                />
             )}
         </div>
     )

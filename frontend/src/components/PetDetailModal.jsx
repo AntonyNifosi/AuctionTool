@@ -302,6 +302,8 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                             <p className="text-muted" style={{ fontSize: '0.75rem', marginBottom: 'var(--spacing-sm)' }}>
                                                 Score basé sur : Prix (40%) + Quantité (40%) + Population (20%)
                                             </p>
+
+                                            {/* Desktop Table */}
                                             <div className="table-container" style={{ maxHeight: '400px' }}>
                                                 <table className="table">
                                                     <thead>
@@ -343,6 +345,43 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                     </tbody>
                                                 </table>
                                             </div>
+
+                                            {/* Mobile List View */}
+                                            <div className="mobile-modal-grid">
+                                                {bestServers.map((server, i) => (
+                                                    <div className="mobile-list-item" key={server.realm_id}>
+                                                        {/* Header: Rank + Server + Score */}
+                                                        <div className="mobile-list-header">
+                                                            <div className="realm-info">
+                                                                <span className="rank-emoji">
+                                                                    {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`}
+                                                                </span>
+                                                                {server.region && (
+                                                                    <img
+                                                                        src={getFlagUrl(server.region)}
+                                                                        alt=""
+                                                                        className="realm-flag"
+                                                                    />
+                                                                )}
+                                                                <span className="realm-name">{server.realm_name}</span>
+                                                            </div>
+                                                            <span style={{ fontWeight: 600, color: 'var(--accent)' }}>
+                                                                {server.scorePercent}%
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Details: Price, Qty, Pop */}
+                                                        <div className="mobile-list-row">
+                                                            <span>Prix: <PriceDisplay value={server.min_price} /></span>
+                                                            <span className="text-muted">Pop: {server.populationLabel || transformPop(server.population)}</span>
+                                                        </div>
+                                                        <div className="mobile-list-row">
+                                                            <span className="text-muted">Qté: {server.total_quantity ?? 'N/A'}</span>
+                                                            <span className="text-muted">{bestMode === 'sell' ? 'Vente' : 'Achat'}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </>
                                     )}
                                 </div>
@@ -358,43 +397,71 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                     {sortedRealmPrices.length === 0 ? (
                                         <p className="text-muted">Aucune donnée de prix disponible pour ce pet.</p>
                                     ) : (
-                                        <div className="table-container" style={{ maxHeight: '500px' }}>
-                                            <table className="table">
-                                                <thead>
-                                                    <tr>
-                                                        <th onClick={() => handleSort('realm_name')} style={{ cursor: 'pointer' }}>
-                                                            Serveur{getSortIndicator('realm_name')}
-                                                        </th>
-                                                        <th onClick={() => handleSort('min_price')} style={{ cursor: 'pointer' }}>
-                                                            Prix Min{getSortIndicator('min_price')}
-                                                        </th>
-                                                        <th onClick={() => handleSort('total_quantity')} style={{ cursor: 'pointer' }}>
-                                                            Quantité{getSortIndicator('total_quantity')}
-                                                        </th>
-                                                        <th>Maj</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {sortedRealmPrices.map((price) => (
-                                                        <tr key={price.realm_id}>
-                                                            <td>
+                                        <>
+                                            {/* Desktop Table */}
+                                            <div className="table-container" style={{ maxHeight: '500px' }}>
+                                                <table className="table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th onClick={() => handleSort('realm_name')} style={{ cursor: 'pointer' }}>
+                                                                Serveur{getSortIndicator('realm_name')}
+                                                            </th>
+                                                            <th onClick={() => handleSort('min_price')} style={{ cursor: 'pointer' }}>
+                                                                Prix Min{getSortIndicator('min_price')}
+                                                            </th>
+                                                            <th onClick={() => handleSort('total_quantity')} style={{ cursor: 'pointer' }}>
+                                                                Quantité{getSortIndicator('total_quantity')}
+                                                            </th>
+                                                            <th>Maj</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {sortedRealmPrices.map((price) => (
+                                                            <tr key={price.realm_id}>
+                                                                <td>
+                                                                    {price.region && (
+                                                                        <img
+                                                                            src={getFlagUrl(price.region)}
+                                                                            alt=""
+                                                                            style={{ width: 20, marginRight: 8, verticalAlign: 'middle' }}
+                                                                        />
+                                                                    )}
+                                                                    {price.realm_name}
+                                                                </td>
+                                                                <td><PriceDisplay value={price.min_price} /></td>
+                                                                <td>{price.total_quantity ?? 'N/A'}</td>
+                                                                <td className="text-muted">{formatTimeDiff(price.recorded_at)}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            {/* Mobile List View */}
+                                            <div className="mobile-modal-grid">
+                                                {sortedRealmPrices.map((price) => (
+                                                    <div className="mobile-list-item" key={price.realm_id}>
+                                                        <div className="mobile-list-header">
+                                                            <div className="realm-info">
                                                                 {price.region && (
                                                                     <img
                                                                         src={getFlagUrl(price.region)}
                                                                         alt=""
-                                                                        style={{ width: 20, marginRight: 8, verticalAlign: 'middle' }}
+                                                                        className="realm-flag"
                                                                     />
                                                                 )}
-                                                                {price.realm_name}
-                                                            </td>
-                                                            <td><PriceDisplay value={price.min_price} /></td>
-                                                            <td>{price.total_quantity ?? 'N/A'}</td>
-                                                            <td className="text-muted">{formatTimeDiff(price.recorded_at)}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
+                                                                <span className="realm-name">{price.realm_name}</span>
+                                                            </div>
+                                                            <PriceDisplay value={price.min_price} />
+                                                        </div>
+                                                        <div className="mobile-list-row">
+                                                            <span className="text-muted">Qté: {price.total_quantity ?? 'N/A'}</span>
+                                                            <span className="text-muted">{formatTimeDiff(price.recorded_at)}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </>
                                     )}
                                 </div>
                             )}
