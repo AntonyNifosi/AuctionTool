@@ -20,7 +20,7 @@ function CollectionPage() {
             const slug = selectedRealm.name.toLowerCase().replace(/ /g, '-').replace(/'/g, '')
             setSelectedRealmSlug(slug)
         }
-    }, [selectedRealm])
+    }, [selectedRealm, realms])
 
     const handleSearch = async (e) => {
         e.preventDefault()
@@ -41,8 +41,14 @@ function CollectionPage() {
             })
 
             // Add realm_id if available to get prices for this specific realm
-            if (selectedRealm) {
-                params.append('realm_id', selectedRealm.id)
+            if (selectedRealmSlug) {
+                // Find realm ID from slug
+                const targetRealm = realms.find(r =>
+                    r.name.toLowerCase().replace(/ /g, '-').replace(/'/g, '') === selectedRealmSlug
+                )
+                if (targetRealm) {
+                    params.append('realm_id', targetRealm.id)
+                }
             }
 
             const response = await fetch(`/api/collection/pets?${params}`)

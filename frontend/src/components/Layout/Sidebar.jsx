@@ -17,9 +17,9 @@ function Sidebar() {
     } = useRealm()
 
     const navItems = [
-        { path: '/', icon: '🏠', label: 'Items Housing', group: 'Housing' },
-        { path: '/profits', icon: '💰', label: 'Profits Craft', group: 'Housing' },
-        { path: '/pets', icon: '🐾', label: 'Pets', group: 'Pets' },
+        { path: '/', icon: '🏠', label: 'Objets Housing', group: 'Housing' },
+        { path: '/profits', icon: '💰', label: 'Rentabilité Artisanat', group: 'Housing' },
+        { path: '/pets', icon: '🐾', label: 'Mascottes', group: 'Pets' },
         { path: '/collection', icon: '👤', label: 'Ma Collection', group: 'Pets' },
     ]
 
@@ -97,7 +97,7 @@ function Sidebar() {
                 <nav className="sidebar-nav">
                     {Object.entries(groupedItems).map(([group, items]) => (
                         <div key={group} className="nav-group">
-                            <div className="nav-group-title">{group === 'Housing' ? '🏡 Housing' : '🐾 Pets'}</div>
+                            <div className="nav-group-title">{group === 'Housing' ? '🏡 Housing' : '🐾 Mascottes'}</div>
                             {items.map((item) => (
                                 <NavLink
                                     key={item.path}
