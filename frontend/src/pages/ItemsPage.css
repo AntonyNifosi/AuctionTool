@@ -53,7 +53,7 @@
 
 .clickable-row:hover {
     background: var(--bg-tertiary) !important;
-    border-left: 3px solid var(--accent-gold);
+    box-shadow: inset 3px 0 0 var(--accent-gold);
 }
 
 .clickable-row:hover .item-name {
