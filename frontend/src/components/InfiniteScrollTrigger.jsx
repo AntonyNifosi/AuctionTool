@@ -31,5 +31,5 @@ export default function InfiniteScrollTrigger({ onIntersect, enabled = true, roo
         }
     }, [onIntersect, enabled, rootMargin])
 
-    return <div ref={triggerRef} className="infinite-scroll-trigger" style={{ height: '20px', width: '100%' }} />
+    return <div ref={triggerRef} className="infinite-scroll-trigger" style={{ height: '20px', width: '100%', visibility: enabled ? 'visible' : 'hidden' }} />
 }

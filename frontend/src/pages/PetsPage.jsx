@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useRealm } from '../context/RealmContext'
 import PriceDisplay from '../components/PriceDisplay'
 import PetDetailModal from '../components/PetDetailModal'
+import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger'
 import './PetsPage.css'
 
 function PetsPage() {
@@ -42,7 +43,14 @@ function PetsPage() {
                 const response = await fetch(`/api/pets?${params}`)
                 if (response.ok) {
                     const data = await response.json()
-                    setPets(data.pets || [])
+
+                    setPets(prev => {
+                        if (page === 1) return data.pets || []
+                        const existingIds = new Set(prev.map(p => p.pet_id))
+                        const newPets = (data.pets || []).filter(p => !existingIds.has(p.pet_id))
+                        return [...prev, ...newPets]
+                    })
+
                     setTotal(data.total || 0)
                     setTotalPages(Math.ceil((data.total || 0) / pageSize))
                 }
@@ -74,6 +82,9 @@ function PetsPage() {
             key,
             direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
         }))
+        setPage(1)
+        setLoading(true)
+        setPets([])
     }
 
     const getSortIndicator = (key) => {
@@ -117,7 +128,7 @@ function PetsPage() {
                         className="input"
                         placeholder="Nom du pet..."
                         value={search}
-                        onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                        onChange={(e) => { setSearch(e.target.value); setPage(1); setLoading(true); setPets([]); }}
                     />
                 </div>
 
@@ -127,7 +138,7 @@ function PetsPage() {
                         <input
                             type="checkbox"
                             checked={tradableOnly}
-                            onChange={(e) => { setTradableOnly(e.target.checked); setPage(1); }}
+                            onChange={(e) => { setTradableOnly(e.target.checked); setPage(1); setLoading(true); setPets([]); }}
                         />
                         <span>Échangeables uniquement</span>
                     </label>
@@ -202,6 +213,15 @@ function PetsPage() {
                         </div>
                     </div>
                 ))}
+                {/* Infinite Scroll Trigger Mobile */}
+                {loading && page > 1 && (
+                    <div className="loading-more">
+                        <div className="spinner-inline"></div> Chargement...
+                    </div>
+                )}
+                {page < totalPages && !loading && (
+                    <InfiniteScrollTrigger onIntersect={() => setPage(prev => prev + 1)} />
+                )}
             </div>
 
             {/* Table */}
@@ -225,7 +245,7 @@ function PetsPage() {
                         </tr>
                     </thead>
                     <tbody>
-                        {loading ? (
+                        {loading && page === 1 ? (
                             Array.from({ length: 10 }).map((_, i) => (
                                 <tr key={i}>
                                     {Array.from({ length: 7 }).map((_, j) => (
@@ -233,7 +253,7 @@ function PetsPage() {
                                     ))}
                                 </tr>
                             ))
-                        ) : pets.length === 0 ? (
+                        ) : pets.length === 0 && !loading ? (
                             <tr>
                                 <td colSpan="7" style={{ textAlign: 'center', padding: '2rem' }}>
                                     Aucun pet trouvé
@@ -295,30 +315,44 @@ function PetsPage() {
                                 </tr>
                             ))
                         )}
+                        {/* Loading more row */}
+                        {loading && page > 1 && (
+                            <tr>
+                                <td colSpan="7" style={{ textAlign: 'center', padding: '1rem' }}>
+                                    <div className="spinner-inline"></div> Chargement de la suite...
+                                </td>
+                            </tr>
+                        )}
+                        {/* Trigger for Desktop */}
+                        {pets.length > 0 && (
+                            <tr style={{ height: '20px', border: 'none' }}>
+                                <td colSpan="7" style={{ padding: 0, border: 'none' }}>
+                                    <InfiniteScrollTrigger
+                                        onIntersect={() => setPage(prev => prev + 1)}
+                                        enabled={!loading && page < totalPages}
+                                    />
+                                </td>
+                            </tr>
+                        )}
+
                     </tbody>
                 </table>
             </div>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-                <div className="pagination">
-                    <button className="pagination-btn" onClick={() => setPage(1)} disabled={page === 1}>««</button>
-                    <button className="pagination-btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>«</button>
-                    <span style={{ padding: '0 1rem', color: 'var(--text-muted)' }}>Page {page} / {totalPages}</span>
-                    <button className="pagination-btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>»</button>
-                    <button className="pagination-btn" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»»</button>
-                </div>
-            )}
+            {/* Padding */}
+            <div style={{ height: '20px' }}></div>
 
             {/* Pet Detail Modal */}
-            {selectedPet && (
-                <PetDetailModal
-                    pet={selectedPet}
-                    realmId={selectedRealm.id}
-                    onClose={() => setSelectedPet(null)}
-                />
-            )}
-        </div>
+            {
+                selectedPet && (
+                    <PetDetailModal
+                        pet={selectedPet}
+                        realmId={selectedRealm.id}
+                        onClose={() => setSelectedPet(null)}
+                    />
+                )
+            }
+        </div >
     )
 }
 

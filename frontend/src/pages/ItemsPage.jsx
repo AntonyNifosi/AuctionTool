@@ -189,13 +189,14 @@ function ItemsPage() {
                         {/* Loading indicator for infinite scroll on mobile */}
                         {loading && page > 1 && (
                             <div className="loading-more">
-                                <div className="spinner"></div> Chargement...
+                                <div className="spinner-inline"></div> Chargement...
                             </div>
                         )}
                         {/* Infinite Scroll Trigger */}
-                        {page < totalPages && !loading && (
-                            <InfiniteScrollTrigger onIntersect={() => setPage(prev => prev + 1)} />
-                        )}
+                        <InfiniteScrollTrigger
+                            onIntersect={() => setPage(prev => prev + 1)}
+                            enabled={!loading && page < totalPages}
+                        />
                     </>
                 )}
             </div>
@@ -313,13 +314,17 @@ function ItemsPage() {
                             </tr>
                         )}
                         {/* Trigger for Desktop */}
-                        {page < totalPages && !loading && items.length > 0 && (
+                        {items.length > 0 && (
                             <tr style={{ height: '20px', border: 'none' }}>
                                 <td colSpan="9" style={{ padding: 0, border: 'none' }}>
-                                    <InfiniteScrollTrigger onIntersect={() => setPage(prev => prev + 1)} />
+                                    <InfiniteScrollTrigger
+                                        onIntersect={() => setPage(prev => prev + 1)}
+                                        enabled={!loading && page < totalPages}
+                                    />
                                 </td>
                             </tr>
                         )}
+
 
                     </tbody>
                 </table>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useRealm } from '../context/RealmContext'
 import PriceDisplay from '../components/PriceDisplay'
 import ItemDetailModal from '../components/ItemDetailModal'
+import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger'
 import './ProfitsPage.css'
 
 const PROFESSIONS = {
@@ -63,7 +64,14 @@ function ProfitsPage() {
                 const response = await fetch(`/api/profits?${params}`)
                 if (response.ok) {
                     const data = await response.json()
-                    setItems(data.items || [])
+
+                    setItems(prev => {
+                        if (page === 1) return data.items || []
+                        const existingIds = new Set(prev.map(i => i.item_id))
+                        const newItems = (data.items || []).filter(i => !existingIds.has(i.item_id))
+                        return [...prev, ...newItems]
+                    })
+
                     setTotal(data.total || 0)
                     setTotalPages(Math.ceil((data.total || 0) / pageSize))
                 }
@@ -112,6 +120,8 @@ function ProfitsPage() {
                 : [...prev, id]
         )
         setPage(1)
+        setLoading(true)
+        setItems([])
     }
 
     const toggleExpansion = (exp) => {
@@ -121,6 +131,8 @@ function ProfitsPage() {
                 : [...prev, exp]
         )
         setPage(1)
+        setLoading(true)
+        setItems([])
     }
 
     const getProfitIndicator = (item) => {
@@ -135,6 +147,9 @@ function ProfitsPage() {
             key,
             direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
         }))
+        setPage(1)
+        setLoading(true)
+        setItems([])
     }
 
     const getSortIndicator = (key) => {
@@ -209,7 +224,7 @@ function ProfitsPage() {
                         type="number"
                         className="input"
                         value={minProfitGold}
-                        onChange={(e) => { setMinProfitGold(parseInt(e.target.value) || 0); setPage(1); }}
+                        onChange={(e) => { setMinProfitGold(parseInt(e.target.value) || 0); setPage(1); setLoading(true); setItems([]); }}
                         min="0"
                         step="100"
                     />
@@ -221,7 +236,7 @@ function ProfitsPage() {
                         type="number"
                         className="input"
                         value={minVolume}
-                        onChange={(e) => { setMinVolume(parseInt(e.target.value) || 0); setPage(1); }}
+                        onChange={(e) => { setMinVolume(parseInt(e.target.value) || 0); setPage(1); setLoading(true); setItems([]); }}
                         min="0"
                     />
                 </div>
@@ -283,6 +298,15 @@ function ProfitsPage() {
                         </div>
                     )
                 })}
+                {/* Infinite Scroll Trigger Mobile */}
+                {loading && page > 1 && (
+                    <div className="loading-more">
+                        <div className="spinner-inline"></div> Chargement...
+                    </div>
+                )}
+                {page < totalPages && !loading && (
+                    <InfiniteScrollTrigger onIntersect={() => setPage(prev => prev + 1)} />
+                )}
             </div>
 
             {/* Table */}
@@ -322,7 +346,7 @@ function ProfitsPage() {
                         </tr>
                     </thead>
                     <tbody>
-                        {loading ? (
+                        {loading && page === 1 ? (
                             Array.from({ length: 10 }).map((_, i) => (
                                 <tr key={i}>
                                     {Array.from({ length: 9 }).map((_, j) => (
@@ -330,7 +354,7 @@ function ProfitsPage() {
                                     ))}
                                 </tr>
                             ))
-                        ) : items.length === 0 ? (
+                        ) : items.length === 0 && !loading ? (
                             <tr>
                                 <td colSpan="9" style={{ textAlign: 'center', padding: '2rem' }}>
                                     Aucun item craftable trouvé
@@ -386,20 +410,32 @@ function ProfitsPage() {
                                 )
                             })
                         )}
+                        {/* Loading more row */}
+                        {loading && page > 1 && (
+                            <tr>
+                                <td colSpan="9" style={{ textAlign: 'center', padding: '1rem' }}>
+                                    <div className="spinner-inline"></div> Chargement de la suite...
+                                </td>
+                            </tr>
+                        )}
+                        {/* Trigger for Desktop */}
+                        {items.length > 0 && (
+                            <tr style={{ height: '20px', border: 'none' }}>
+                                <td colSpan="9" style={{ padding: 0, border: 'none' }}>
+                                    <InfiniteScrollTrigger
+                                        onIntersect={() => setPage(prev => prev + 1)}
+                                        enabled={!loading && page < totalPages}
+                                    />
+                                </td>
+                            </tr>
+                        )}
+
                     </tbody>
                 </table>
             </div>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-                <div className="pagination">
-                    <button className="pagination-btn" onClick={() => setPage(1)} disabled={page === 1}>««</button>
-                    <button className="pagination-btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>«</button>
-                    <span className="pagination-info">Page {page} / {totalPages}</span>
-                    <button className="pagination-btn" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>»</button>
-                    <button className="pagination-btn" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»»</button>
-                </div>
-            )}
+            {/* Padding */}
+            <div style={{ height: '20px' }}></div>
 
             {/* Item Detail Modal */}
             {selectedItem && (

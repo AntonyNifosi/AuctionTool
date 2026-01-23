@@ -6,9 +6,12 @@ import PetsPage from './pages/PetsPage'
 import CollectionPage from './pages/CollectionPage'
 import { RealmProvider } from './context/RealmContext'
 
+import ScrollToTop from './components/ScrollToTop'
+
 function App() {
     return (
         <RealmProvider>
+            <ScrollToTop />
             <div className="app">
                 <Sidebar />
                 <main className="main-content">
