@@ -3,16 +3,19 @@ import { useRealm } from '../context/RealmContext'
 import PriceDisplay from '../components/PriceDisplay'
 import PetDetailModal from '../components/PetDetailModal'
 import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger'
+import MultiSelect from '../components/MultiSelect'
 import './PetsPage.css'
 
 function PetsPage() {
     const { selectedRealm } = useRealm()
     const [pets, setPets] = useState([])
+    const [availableSources, setAvailableSources] = useState([])
     const [loading, setLoading] = useState(true)
     const [selectedPet, setSelectedPet] = useState(null)
 
     // Filters
     const [search, setSearch] = useState('')
+    const [sourceFilter, setSourceFilter] = useState([])
     const [tradableOnly, setTradableOnly] = useState(false)
     const [page, setPage] = useState(1)
     const [totalPages, setTotalPages] = useState(1)
@@ -21,6 +24,22 @@ function PetsPage() {
 
     // Sorting - default by price descending (highest first)
     const [sortConfig, setSortConfig] = useState({ key: 'min_price', direction: 'desc' })
+
+    // Fetch available sources on mount
+    useEffect(() => {
+        const fetchSources = async () => {
+            try {
+                const response = await fetch('/api/pets/sources')
+                if (response.ok) {
+                    const data = await response.json()
+                    setAvailableSources(data.sources || [])
+                }
+            } catch (err) {
+                console.error('Failed to fetch sources:', err)
+            }
+        }
+        fetchSources()
+    }, [])
 
     useEffect(() => {
         if (!selectedRealm) return
@@ -39,6 +58,11 @@ function PetsPage() {
                 })
 
                 if (search) params.append('search', search)
+
+                // Append each selected source
+                if (sourceFilter.length > 0) {
+                    sourceFilter.forEach(s => params.append('source', s))
+                }
 
                 const response = await fetch(`/api/pets?${params}`)
                 if (response.ok) {
@@ -62,7 +86,7 @@ function PetsPage() {
         }
 
         fetchPets()
-    }, [selectedRealm, search, tradableOnly, page, sortConfig])
+    }, [selectedRealm, search, sourceFilter, tradableOnly, page, sortConfig])
 
     const getQualityColor = (quality) => {
         const colors = {
@@ -132,6 +156,16 @@ function PetsPage() {
                     />
                 </div>
 
+                <div className="filter-group" style={{ flex: 1.5 }}>
+                    <label className="filter-label">🏷️ Source</label>
+                    <MultiSelect
+                        options={availableSources}
+                        value={sourceFilter}
+                        onChange={(newVal) => { setSourceFilter(newVal); setPage(1); setLoading(true); setPets([]); }}
+                        placeholder="Toutes les sources"
+                    />
+                </div>
+
                 <div className="filter-group">
                     <label className="filter-label">💱 Options</label>
                     <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', height: '42px', cursor: 'pointer' }}>
@@ -171,7 +205,9 @@ function PetsPage() {
                                 <div className="mobile-card-title" style={{ color: getQualityColor(pet.quality) }}>
                                     {pet.name}
                                 </div>
-                                <div className="mobile-card-subtitle">{pet.creature_type || 'N/A'} • Niv {pet.level || '-'}</div>
+                                <div className="mobile-card-subtitle">
+                                    {pet.creature_type || 'N/A'} • Niv {pet.level || '-'} • {pet.source || 'Source inconnue'}
+                                </div>
                             </div>
                         </div>
 
@@ -236,6 +272,7 @@ function PetsPage() {
                             <th onClick={() => handleSort('level')} style={{ cursor: 'pointer' }}>
                                 Niveau{getSortIndicator('level')}
                             </th>
+                            <th>Source</th>
                             <th>Type</th>
                             <th onClick={() => handleSort('min_price')} style={{ cursor: 'pointer' }}>
                                 Prix (min){getSortIndicator('min_price')}
@@ -280,6 +317,7 @@ function PetsPage() {
                                         </div>
                                     </td>
                                     <td>{pet.level || '-'}</td>
+                                    <td className="text-muted" style={{ fontSize: '0.85rem' }}>{pet.source || '-'}</td>
                                     <td>{pet.creature_type || 'N/A'}</td>
                                     <td>
                                         <PriceDisplay value={pet.min_price} />

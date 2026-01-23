@@ -6,7 +6,7 @@ Pets API Router
 # sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from fastapi import APIRouter, Query
-from typing import Optional
+from typing import Optional, List
 
 from ..data_manager import get_data_manager
 
@@ -17,6 +17,7 @@ router = APIRouter()
 async def get_pets(
     realm_id: int = Query(..., description="Realm ID for prices"),
     search: Optional[str] = Query(None, description="Search by name"),
+    source: Optional[List[str]] = Query(None, description="Filter by source (one or more)"),
     creature_type: Optional[str] = Query(None, description="Filter by creature type"),
     tradable_only: bool = Query(False, description="Only show tradable pets"),
     sort_by: str = Query("min_price", description="Sort by: name, min_price, level"),
@@ -47,6 +48,17 @@ async def get_pets(
     if search:
         search_lower = search.lower()
         filtered = [p for p in filtered if search_lower in (p.get("name") or "").lower()]
+        
+    if source:
+        # Handle multiple sources (OR logic)
+        # Normalize sources from query (lowercase)
+        sources_lower = [s.lower() for s in source]
+        
+        def check_source(pet):
+            pet_source = (pet.get("source") or "").lower()
+            return any(s in pet_source for s in sources_lower)
+            
+        filtered = [p for p in filtered if check_source(p)]
     
     if creature_type:
         filtered = [p for p in filtered if p.get("creature_type") == creature_type]
@@ -117,6 +129,22 @@ async def get_creature_types():
             types.add(ct)
     
     return {"creature_types": sorted(list(types))}
+
+
+@router.get("/sources")
+async def get_pet_sources():
+    """Get all unique pet sources"""
+    dm = get_data_manager()
+    
+    pets = dm.get_pets() if hasattr(dm, 'get_pets') else []
+    
+    sources = set()
+    for pet in pets:
+        src = pet.get("source")
+        if src and src.strip():
+            sources.add(src.strip())
+    
+    return {"sources": sorted(list(sources))}
 
 
 @router.get("/{pet_id}")

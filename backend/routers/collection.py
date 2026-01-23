@@ -67,6 +67,9 @@ async def get_character_collection(
             
             # Determine price
             price = None
+            
+
+            
             if species_id:
                 if realm_id:
                     # Constant time lookup from pre-fetched map
@@ -91,6 +94,7 @@ async def get_character_collection(
                 "level": level,
                 "quality": quality,
                 "creature_type": db_pet.get("creature_type", "-"),
+                "source": db_pet.get("source", "Inconnue"),
                 "icon_url": db_pet.get("icon_url"),
                 "min_price": price,
                 "is_tradable": is_tradable

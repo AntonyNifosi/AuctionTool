@@ -241,6 +241,11 @@ function CollectionPage() {
                                     </div>
 
                                     <div className="mobile-card-row">
+                                        <span className="mobile-card-label">Source</span>
+                                        <span className="text-muted" style={{ fontSize: '0.85rem' }}>{pet.source || 'Inconnue'}</span>
+                                    </div>
+
+                                    <div className="mobile-card-row">
                                         <span className="mobile-card-label">Prix</span>
                                         <PriceDisplay value={pet.min_price} />
                                     </div>
@@ -284,6 +289,7 @@ function CollectionPage() {
                                     <th style={{ width: 50 }}></th>
                                     <th>Nom</th>
                                     <th>Niveau</th>
+                                    <th>Source</th>
                                     <th>Qualité</th>
                                     <th>Type</th>
                                     <th>Prix</th>
@@ -312,6 +318,9 @@ function CollectionPage() {
                                             </div>
                                         </td>
                                         <td>{pet.level}</td>
+                                        <td className="text-muted" style={{ fontSize: '0.85rem', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={pet.source}>
+                                            {pet.source || '-'}
+                                        </td>
                                         <td>
                                             <span style={{ color: getQualityColor(pet.quality) }}>
                                                 {pet.quality}
