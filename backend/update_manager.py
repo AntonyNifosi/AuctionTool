@@ -156,6 +156,10 @@ class UpdateManager:
             self._fetch_icons(api, dm)
             self._fetch_pet_icons(api, dm)
 
+            # 6. Cleanup old data (keep only 7 days)
+            self.status_message = "Nettoyage des anciennes données..."
+            dm.cleanup_old_data(days=7)
+
             self.progress = 1.0
             self.status_message = "Mise à jour terminée avec succès !"
             self.last_update_time = datetime.now()
