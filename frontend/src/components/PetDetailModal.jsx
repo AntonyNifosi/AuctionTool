@@ -94,12 +94,13 @@ function PetDetailModal({ pet, realmId, onClose }) {
         if (filtered.length < 2) return filtered
 
         const prices = filtered.map(p => p.min_price)
-        const quantities = filtered.map(p => p.total_quantity || 0)
+        // Use sales_3d instead of total_quantity
+        const sales = filtered.map(p => p.sales_3d || 0)
 
         const maxPrice = Math.max(...prices)
         const minPrice = Math.min(...prices)
-        const maxQty = Math.max(...quantities) || 1
-        const minQty = Math.min(...quantities)
+        const maxSales = Math.max(...sales) || 1
+        const minSales = Math.min(...sales)
 
         const populationScores = {
             'FULL': 1.0, 'HIGH': 0.8, 'MEDIUM': 0.6, 'LOW': 0.4, 'NEW_PLAYERS': 0.3, 'UNKNOWN': 0.5
@@ -110,21 +111,23 @@ function PetDetailModal({ pet, realmId, onClose }) {
 
         const scored = filtered.map(server => {
             const price = server.min_price
-            const qty = server.total_quantity || 0
+            const sale = server.sales_3d || 0
             const popType = server.population || 'UNKNOWN'
 
             const priceNorm = maxPrice !== minPrice ? (price - minPrice) / (maxPrice - minPrice) : 0.5
-            const qtyNorm = maxQty !== minQty ? (qty - minQty) / (maxQty - minQty) : 0.5
+            // Normalize sales (higher = better to sell)
+            const salesNorm = maxSales !== minSales ? (sale - minSales) / (maxSales - minSales) : 0
             const popScore = populationScores[popType] || 0.5
 
             let score
             if (bestMode === 'sell') {
-                score = (priceNorm * 0.4) + ((1 - qtyNorm) * 0.4) + (popScore * 0.2)
+                // Sell mode: High price, High sales, Good population
+                score = (priceNorm * 0.4) + (salesNorm * 0.4) + (popScore * 0.2)
             } else {
-                score = ((1 - priceNorm) * 0.4) + (qtyNorm * 0.4) + (popScore * 0.2)
+                // Buy mode: Low price, (High stock? Sales irrelevant for buy usually, but maybe implies availability?)
+                // For buy, we usually want Low Price. Keeping simple for now or reverting to price dominance.
+                score = ((1 - priceNorm) * 0.7) + (popScore * 0.3)
             }
-
-            if (qty === 0) score = score * 0.1
 
             return {
                 ...server,
@@ -165,6 +168,11 @@ function PetDetailModal({ pet, realmId, onClose }) {
         return colors[quality?.toLowerCase()] || colors.common
     }
 
+    // Helper to get current realm stats
+    const currentRealmStats = useMemo(() => {
+        return realmPrices.find(r => r.realm_id === parseInt(realmId)) || {}
+    }, [realmPrices, realmId])
+
     return (
         <div className={styles.modalOverlay} onClick={onClose}>
             <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
@@ -192,13 +200,13 @@ function PetDetailModal({ pet, realmId, onClose }) {
                     <div className={`${styles.statsGrid} stats-grid`}>
                         <div className="stat-card">
                             <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                                <PriceDisplay value={pet.min_price} />
+                                <PriceDisplay value={currentRealmStats.min_price || pet.min_price} />
                             </div>
                             <div className="stat-label">💰 Prix Minimum</div>
                         </div>
                         <div className="stat-card">
-                            <div className="stat-value">{pet.total_quantity ?? 'N/A'}</div>
-                            <div className="stat-label">📦 Quantité dispo</div>
+                            <div className="stat-value">{currentRealmStats.sales_3d ?? 'N/A'}</div>
+                            <div className="stat-label">📦 Ventes (3j)</div>
                         </div>
                         <div className="stat-card">
                             <div className="stat-value" style={{ color: getQualityColor(pet.quality) }}>
@@ -269,7 +277,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                     ) : (
                                         <>
                                             <p className="text-muted" style={{ fontSize: '0.75rem', marginBottom: 'var(--spacing-sm)' }}>
-                                                Score basé sur : Prix (40%) + Quantité (40%) + Population (20%)
+                                                Score basé sur : Prix (40%) + Ventes (40%) + Population (20%)
                                             </p>
 
                                             {/* Desktop Table */}
@@ -281,7 +289,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                             <th>Serveur</th>
                                                             <th>Population</th>
                                                             <th>Prix</th>
-                                                            <th>Quantité</th>
+                                                            <th>Ventes (3j)</th>
                                                             <th>Score</th>
                                                         </tr>
                                                     </thead>
@@ -305,7 +313,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                                     {server.populationLabel || server.population || 'N/A'}
                                                                 </td>
                                                                 <td><PriceDisplay value={server.min_price} /></td>
-                                                                <td>{server.total_quantity ?? 'N/A'}</td>
+                                                                <td>{server.sales_3d ?? '0'}</td>
                                                                 <td style={{ fontWeight: 600, color: 'var(--accent)' }}>
                                                                     {server.scorePercent}%
                                                                 </td>
@@ -342,7 +350,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                             <span className="text-muted">Pop: {server.populationLabel || transformPop(server.population)}</span>
                                                         </div>
                                                         <div className={styles.mobileListRow}>
-                                                            <span className="text-muted">Qté: {server.total_quantity ?? 'N/A'}</span>
+                                                            <span className="text-muted">Ventes: {server.sales_3d ?? '0'}</span>
                                                             <span className="text-muted">{bestMode === 'sell' ? 'Vente' : 'Achat'}</span>
                                                         </div>
                                                     </div>
@@ -375,8 +383,8 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                             <th onClick={() => handleSort('min_price')} style={{ cursor: 'pointer' }}>
                                                                 Prix Min{getSortIndicator('min_price')}
                                                             </th>
-                                                            <th onClick={() => handleSort('total_quantity')} style={{ cursor: 'pointer' }}>
-                                                                Quantité{getSortIndicator('total_quantity')}
+                                                            <th onClick={() => handleSort('sales_3d')} style={{ cursor: 'pointer' }}>
+                                                                Ventes (3j){getSortIndicator('sales_3d')}
                                                             </th>
                                                             <th>Maj</th>
                                                         </tr>
@@ -395,7 +403,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                                     {price.realm_name}
                                                                 </td>
                                                                 <td><PriceDisplay value={price.min_price} /></td>
-                                                                <td>{price.total_quantity ?? 'N/A'}</td>
+                                                                <td>{price.sales_3d ?? 0}</td>
                                                                 <td className="text-muted">{formatTimeDiff(price.recorded_at)}</td>
                                                             </tr>
                                                         ))}
@@ -421,7 +429,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                             <PriceDisplay value={price.min_price} />
                                                         </div>
                                                         <div className={styles.mobileListRow}>
-                                                            <span className="text-muted">Qté: {price.total_quantity ?? 'N/A'}</span>
+                                                            <span className="text-muted">Ventes: {price.sales_3d ?? 0}</span>
                                                             <span className="text-muted">{formatTimeDiff(price.recorded_at)}</span>
                                                         </div>
                                                     </div>

@@ -17,7 +17,7 @@ export function BestServersTable({ bestServers, styles }) {
                             <th>#</th>
                             <th>Serveur</th>
                             <th>Prix</th>
-                            <th>Volume Δ</th>
+                            <th>Ventes (3j)</th>
                             <th>Score</th>
                         </tr>
                     </thead>
@@ -29,8 +29,8 @@ export function BestServersTable({ bestServers, styles }) {
                                 </td>
                                 <td>{server.realm_name}</td>
                                 <td><PriceDisplay value={server.min_price} /></td>
-                                <td className={(server.volume ?? server.volume_exchanged) > 0 ? 'text-success' : (server.volume ?? server.volume_exchanged) < 0 ? 'text-danger' : ''}>
-                                    {(server.volume ?? server.volume_exchanged) != null ? ((server.volume ?? server.volume_exchanged) > 0 ? `+${(server.volume ?? server.volume_exchanged)}` : (server.volume ?? server.volume_exchanged)) : 'N/A'}
+                                <td>
+                                    {server.sales_3d ?? 'N/A'}
                                 </td>
                                 <td>
                                     <span className={`${styles.scoreBadge} ${server.score >= 70 ? styles.scoreHigh : server.score >= 40 ? styles.scoreMedium : styles.scoreLow}`}>
@@ -60,8 +60,8 @@ export function BestServersTable({ bestServers, styles }) {
                         </div>
                         <div className={styles.mobileListRow}>
                             <PriceDisplay value={server.min_price} />
-                            <span className={(server.volume ?? server.volume_exchanged) > 0 ? 'text-success' : (server.volume ?? server.volume_exchanged) < 0 ? 'text-danger' : ''}>
-                                Vol: {(server.volume ?? server.volume_exchanged) != null ? ((server.volume ?? server.volume_exchanged) > 0 ? `+${(server.volume ?? server.volume_exchanged)}` : (server.volume ?? server.volume_exchanged)) : 'N/A'}
+                            <span>
+                                Ventes: {server.sales_3d ?? 'N/A'}
                             </span>
                         </div>
                     </div>

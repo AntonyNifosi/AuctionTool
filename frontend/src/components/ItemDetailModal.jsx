@@ -49,7 +49,12 @@ function ItemDetailModal({ item, realmId, onClose }) {
 
                 {/* Metrics */}
                 <div className={styles.modalMetrics}>
-                    <ItemMetrics item={item} itemDetail={itemDetail} styles={styles} />
+                    <ItemMetrics
+                        item={item}
+                        itemDetail={itemDetail}
+                        sales3d={itemDetail?.sales_3d ?? realmPrices.find(r => r.realm_id === parseInt(realmId))?.sales_3d}
+                        styles={styles}
+                    />
                 </div>
 
                 {/* Tabs */}

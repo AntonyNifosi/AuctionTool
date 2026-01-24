@@ -1,7 +1,7 @@
 import PriceDisplay from '../PriceDisplay'
 import TrendBadge from '../TrendBadge'
 
-export function ItemMetrics({ item, itemDetail, styles }) {
+export function ItemMetrics({ item, itemDetail, sales3d, styles }) {
     // Note: styles prop passed from parent (ItemDetailModal)
     // We also use 'stats-grid' and 'stat-card' global classes if we want to reuse index.css styles,
     // or we define them in module. Based on our module file, we need to decide.
@@ -38,15 +38,9 @@ export function ItemMetrics({ item, itemDetail, styles }) {
             </div>
             <div className="stat-card">
                 <div className="stat-value">
-                    {(() => {
-                        const raw = itemDetail?.volume_change ?? item.volume_change
-                        const val = (raw && typeof raw === 'object') ? raw.change : raw
-
-                        if (val == null) return 'N/A'
-                        return val > 0 ? `+${val}` : val
-                    })()}
+                    {sales3d != null ? sales3d : 'N/A'}
                 </div>
-                <div className="stat-label">📦 Volume Δ Semaine</div>
+                <div className="stat-label">📦 Ventes (3j)</div>
             </div>
         </div>
     )
