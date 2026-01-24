@@ -40,6 +40,9 @@ function ProfitsPage() {
     useEffect(() => {
         if (!selectedRealm) return
 
+        const controller = new AbortController()
+        const signal = controller.signal
+
         const fetchProfits = async () => {
             setLoading(true)
 
@@ -61,7 +64,7 @@ function ProfitsPage() {
                     params.append('expansions', selectedExpansions.join(','))
                 }
 
-                const response = await fetch(`/api/profits?${params}`)
+                const response = await fetch(`/api/profits?${params}`, { signal })
                 if (response.ok) {
                     const data = await response.json()
 
@@ -76,13 +79,20 @@ function ProfitsPage() {
                     setTotalPages(Math.ceil((data.total || 0) / pageSize))
                 }
             } catch (err) {
+                if (err.name === 'AbortError') return
                 console.error('Failed to fetch profits:', err)
             } finally {
-                setLoading(false)
+                if (!signal.aborted) {
+                    setLoading(false)
+                }
             }
         }
 
         fetchProfits()
+
+        return () => {
+            controller.abort()
+        }
     }, [selectedRealm, selectedProfessions, selectedExpansions, minProfitGold, minVolume, page, sortConfig])
 
     // Fetch expansions
