@@ -169,7 +169,7 @@ function ItemsPage() {
 
                                     <div className="mobile-card-meta">
                                         <span className="badge">{item.category}</span>
-                                        <span>Qté: {item.total_quantity}</span>
+                                        <span>Ventes: {item.sales_3d ?? 0}/3j</span>
                                         {item.volume_change !== 0 && (
                                             <span className={item.volume_change > 0 ? 'text-success' : 'text-danger'} style={{ fontSize: '0.75rem' }}>
                                                 ({formatVolumeChange(item.volume_change)})
@@ -222,9 +222,9 @@ function ItemsPage() {
                             </th>
                             <th
                                 className="sortable"
-                                onClick={() => handleSort('total_quantity')}
+                                onClick={() => handleSort('sales_3d')}
                             >
-                                Quantité{getSortIcon('total_quantity')}
+                                Ventes (3j){getSortIcon('sales_3d')}
                             </th>
                             <th
                                 className="sortable"
@@ -287,7 +287,7 @@ function ItemsPage() {
                                     <td>
                                         <PriceDisplay value={item.min_price} />
                                     </td>
-                                    <td>{item.total_quantity ?? 'N/A'}</td>
+                                    <td>{item.sales_3d ?? 0}</td>
                                     <td>
                                         <TrendBadge value={item.trend} />
                                     </td>

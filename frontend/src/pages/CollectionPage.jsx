@@ -251,6 +251,11 @@ function CollectionPage() {
                                     </div>
 
                                     <div className="mobile-card-row">
+                                        <span className="mobile-card-label">Ventes (3j)</span>
+                                        <span>{pet.sales_3d ?? 0}</span>
+                                    </div>
+
+                                    <div className="mobile-card-row">
                                         <span className="mobile-card-label">Lien</span>
                                         <a
                                             href={`https://fr.wowhead.com/battle-pet/${pet.pet_id}`}
@@ -293,6 +298,7 @@ function CollectionPage() {
                                     <th>Qualité</th>
                                     <th>Type</th>
                                     <th>Prix</th>
+                                    <th>Ventes (3j)</th>
                                     <th>Échangeable</th>
                                     <th style={{ width: 50 }}>Lien</th>
                                 </tr>
@@ -330,6 +336,7 @@ function CollectionPage() {
                                         <td>
                                             <PriceDisplay value={pet.min_price} />
                                         </td>
+                                        <td>{pet.sales_3d ?? 0}</td>
                                         <td>{pet.is_tradable ? '✅' : '❌'}</td>
                                         <td>
                                             <a

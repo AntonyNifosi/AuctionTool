@@ -31,6 +31,7 @@ class ItemSummary(ItemBase):
     avg_price: Optional[float] = None
     total_quantity: Optional[int] = None
     auction_count: Optional[int] = None
+    sales_3d: Optional[int] = 0
     trend: Optional[float] = None
     volume_change: Optional[int] = None
     recorded_at: Optional[str] = None
@@ -51,6 +52,7 @@ class PriceHistory(BaseModel):
     avg_price: float
     total_quantity: int
     auction_count: int
+    estimated_sales: Optional[int] = 0
 
 
 class ItemDetail(ItemBase):
@@ -102,6 +104,7 @@ class PetSummary(BaseModel):
     source: Optional[str] = None
     is_tradable: bool = False
     min_price: Optional[int] = None
+    sales_3d: Optional[int] = 0
     quality: Optional[str] = None
 
 

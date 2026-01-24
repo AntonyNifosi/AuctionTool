@@ -5,8 +5,10 @@ import threading
 import time
 import queue
 from datetime import datetime, timezone
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 import traceback
+import json
+import os
 
 from .blizzard_api import get_api, BlizzardAPIError
 from .data_manager import get_data_manager
@@ -121,13 +123,18 @@ class UpdateManager:
                     # Fetch auctions
                     all_auctions = api.get_auctions(realm_id)
                     
+                    # Detect sales (Auction Diff)
+                    item_sales, pet_sales = self._detect_sales(realm_id, all_auctions)
+                    if item_sales:
+                        print(f"Detected sales for {len(item_sales)} items")
+                    
                     # Process housing item auctions
-                    self._process_auctions(realm_id, all_auctions, target_item_ids, dm)
+                    self._process_auctions(realm_id, all_auctions, target_item_ids, dm, item_sales)
                     
                     # Process pet auctions
                     pet_ids = dm.get_pet_ids()
                     if pet_ids:
-                        self._process_pet_auctions(realm_id, all_auctions, pet_ids, dm)
+                        self._process_pet_auctions(realm_id, all_auctions, pet_ids, dm, pet_sales)
                     
                 except Exception as e:
                     print(f"Error scanning {realm_name}: {e}")
@@ -231,10 +238,12 @@ class UpdateManager:
                 return existing_items
             raise e
 
-    def _process_auctions(self, realm_id: int, auctions: List[Dict], target_item_ids: set, dm):
+    def _process_auctions(self, realm_id: int, auctions: List[Dict], target_item_ids: set, dm, item_sales: Dict[int, int] = None):
         """Traite les enchères pour un serveur"""
         item_stats = {}
+        item_sales = item_sales or {}
         
+        # 1. Process current auctions
         for auction in auctions:
             item_id = auction.get("item", {}).get("id")
             if item_id in target_item_ids:
@@ -247,30 +256,53 @@ class UpdateManager:
                 if price > 0:
                     item_stats[item_id]["prices"].append(price)
                     item_stats[item_id]["qty"] += qty
+
+        # 2. Add sales data (even if no current auctions)
+        for item_id, sales_count in item_sales.items():
+            if item_id in target_item_ids:
+                if item_id not in item_stats:
+                    item_stats[item_id] = {"prices": [], "qty": 0} # No current prices
+                
+                # Store sales count in stats
+                item_stats[item_id]["sales"] = sales_count
         
         # Batch insert logic could go here, but for now loop is fine with WAL
         # Prepare batch data
         batch_data = []
         for item_id, stats in item_stats.items():
             prices = stats["prices"]
-            if prices:
-                min_price = min(prices)
-                avg_price = sum(prices) / len(prices)
-                total_qty = stats["qty"]
-                auction_count = len(prices)
+            estimated_sales = stats.get("sales", 0)
+            
+            # We record if we have prices OR if we have sales
+            if prices or estimated_sales > 0:
+                if prices:
+                    min_price = min(prices)
+                    avg_price = sum(prices) / len(prices)
+                    total_qty = stats["qty"]
+                    auction_count = len(prices)
+                else:
+                    # Case: Sales but no current listings
+                    # We record 0 price/qty to indicate "Out of Stock" but "Sold"
+                    # Or we should fallback to previous price? 
+                    # For simplicity, 0 indicates no current market data.
+                    min_price = 0
+                    avg_price = 0
+                    total_qty = 0
+                    auction_count = 0
                 
                 batch_data.append((
                     item_id, realm_id, min_price, avg_price, 
-                    total_qty, auction_count
+                    total_qty, auction_count, estimated_sales
                 ))
         
         # Batch insert
         if batch_data:
             dm.batch_record_price_data(batch_data)
     
-    def _process_pet_auctions(self, realm_id: int, auctions: List[Dict], pet_ids: set, dm):
+    def _process_pet_auctions(self, realm_id: int, auctions: List[Dict], pet_ids: set, dm, pet_sales: Dict[int, int] = None):
         """Traite les enchères de pets pour un serveur"""
         pet_stats = {}
+        pet_sales = pet_sales or {}
         
         for auction in auctions:
             # Les pets ont pet_species_id DANS l'objet item, pas à la racine
@@ -292,19 +324,37 @@ class UpdateManager:
                         pet_stats[pet_species_id]["quality"] = quality
                         pet_stats[pet_species_id]["level"] = level
         
+        # Add sales for pets
+        for pet_id, sales_count in pet_sales.items():
+            if pet_id in pet_ids:
+                if pet_id not in pet_stats:
+                    pet_stats[pet_id] = {"prices": [], "qty": 0, "quality": None, "level": None}
+                pet_stats[pet_id]["sales"] = sales_count
+        
         # Enregistrer les prix des pets
         # Enregistrer les prix des pets en batch
         batch_data = []
         for pet_id, stats in pet_stats.items():
             prices = stats["prices"]
-            if prices:
-                min_price = min(prices)
-                avg_price = sum(prices) / len(prices)
-                total_qty = stats["qty"]
+            estimated_sales = stats.get("sales", 0)
+            
+            if prices or estimated_sales > 0:
+                if prices:
+                    min_price = min(prices)
+                    avg_price = sum(prices) / len(prices)
+                    total_qty = stats["qty"]
+                else:
+                    min_price = 0
+                    avg_price = 0
+                    total_qty = 0
+                
+                # For pets without prices, we might lack quality/level if they are sales-only (no current listings)
+                # We can leave them None or use reasonable defaults. DB allows NULL?
+                # DataManager logic inserts them. Let's rely on DB schema.
                 
                 batch_data.append((
                     pet_id, realm_id, min_price, avg_price,
-                    total_qty, stats["quality"], stats["level"]
+                    total_qty, stats["quality"], stats["level"], estimated_sales
                 ))
         
         if batch_data:
@@ -533,3 +583,81 @@ class UpdateManager:
                             break
             except Exception:
                 continue
+
+    def _get_snapshot_path(self, realm_id: int) -> str:
+        """Retourne le chemin du fichier snapshot pour un serveur"""
+        # On va chercher le dossier data via data_manager ou config si possible
+        # Pour simplifier ici on utilise un dossier 'snapshots' dans le dossier courant backend/data
+        # On peut inferer le path relative
+        base_dir = os.path.dirname(__file__)
+        data_dir = os.path.join(base_dir, "data", "snapshots")
+        os.makedirs(data_dir, exist_ok=True)
+        return os.path.join(data_dir, f"realm_{realm_id}.json")
+
+    def _detect_sales(self, realm_id: int, current_auctions: List[Dict]) -> Tuple[Dict[int, int], Dict[int, int]]:
+        """
+        Compare les enchères actuelles avec le snapshot précédent pour détecter les ventes.
+        Retourne (item_sales, pet_sales) où keys sont les IDs et values le nombre de ventes.
+        """
+        snapshot_path = self._get_snapshot_path(realm_id)
+        
+        # 1. Charger l'ancien snapshot
+        old_auctions = {}
+        if os.path.exists(snapshot_path):
+            try:
+                with open(snapshot_path, 'r') as f:
+                    old_auctions = json.load(f)
+            except Exception as e:
+                print(f"Error loading snapshot for realm {realm_id}: {e}")
+        
+        # 2. Construire le nouveau snapshot
+        # Format: auction_id -> {item_id, pet_species_id, time_left}
+        new_snapshot = {}
+        current_ids = set()
+        
+        for auc in current_auctions:
+            auc_id = str(auc.get("id")) # JSON keys are strings
+            item_id = auc.get("item", {}).get("id")
+            pet_species_id = auc.get("item", {}).get("pet_species_id")
+            time_left = auc.get("time_left")
+            
+            new_snapshot[auc_id] = {
+                "i": item_id,
+                "p": pet_species_id,
+                "t": time_left
+            }
+            current_ids.add(auc_id)
+            
+        # 3. Sauvegarder le nouveau snapshot
+        try:
+            with open(snapshot_path, 'w') as f:
+                json.dump(new_snapshot, f)
+        except Exception as e:
+            print(f"Error saving snapshot for realm {realm_id}: {e}")
+            
+        # 4. Détecter les disparitions (Old mais pas New)
+        item_sales = {}
+        pet_sales = {}
+        
+        # Si pas d'ancien snapshot, on ne peut pas deviner les ventes
+        if not old_auctions:
+            return {}, {}
+            
+        for auc_id, data in old_auctions.items():
+            if auc_id not in current_ids:
+                # Disparu !
+                time_left = data.get("t")
+                
+                # Si time_left n'était Pas SHORT (< 30min), on considère vendu
+                if time_left != "SHORT":
+                    # Item Sale
+                    item_id = data.get("i")
+                    if item_id:
+                        item_sales[item_id] = item_sales.get(item_id, 0) + 1
+                        
+                    # Pet Sale
+                    pet_id = data.get("p")
+                    if pet_id:
+                        pet_sales[pet_id] = pet_sales.get(pet_id, 0) + 1
+                        
+        return item_sales, pet_sales

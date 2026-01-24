@@ -206,7 +206,7 @@ function PetsPage() {
                                     {pet.name}
                                 </div>
                                 <div className="mobile-card-subtitle">
-                                    {pet.creature_type || 'N/A'} • Niv {pet.level || '-'} • {pet.source || 'Source inconnue'}
+                                    {pet.creature_type || 'N/A'} • Niv {pet.level || '-'} • {pet.sales_3d ?? 0} Ventes/3j
                                 </div>
                             </div>
                         </div>
@@ -277,6 +277,7 @@ function PetsPage() {
                             <th onClick={() => handleSort('min_price')} style={{ cursor: 'pointer' }}>
                                 Prix (min){getSortIndicator('min_price')}
                             </th>
+                            <th>Ventes (3j)</th>
                             <th>Échangeable</th>
                             <th style={{ width: 50 }}>Lien</th>
                         </tr>
@@ -285,7 +286,7 @@ function PetsPage() {
                         {loading && page === 1 ? (
                             Array.from({ length: 10 }).map((_, i) => (
                                 <tr key={i}>
-                                    {Array.from({ length: 7 }).map((_, j) => (
+                                    {Array.from({ length: 8 }).map((_, j) => (
                                         <td key={j}><div className="skeleton" style={{ width: j === 1 ? 200 : 80, height: 20 }} /></td>
                                     ))}
                                 </tr>
@@ -322,6 +323,7 @@ function PetsPage() {
                                     <td>
                                         <PriceDisplay value={pet.min_price} />
                                     </td>
+                                    <td>{pet.sales_3d ?? 0}</td>
                                     <td>
                                         {pet.is_tradable ? '✅' : '❌'}
                                     </td>

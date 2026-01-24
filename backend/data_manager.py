@@ -65,6 +65,7 @@ class DataManager:
                 avg_price REAL,
                 total_quantity INTEGER,
                 auction_count INTEGER,
+                estimated_sales INTEGER DEFAULT 0,
                 recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (item_id) REFERENCES housing_items(item_id),
                 FOREIGN KEY (realm_id) REFERENCES realms(realm_id)
@@ -76,7 +77,12 @@ class DataManager:
             CREATE INDEX IF NOT EXISTS idx_price_history_item_realm 
             ON price_history(item_id, realm_id, recorded_at)
         """)
-        
+        # Migration: ajouter colonne estimated_sales si elle n'existe pas
+        try:
+            cursor.execute("ALTER TABLE price_history ADD COLUMN estimated_sales INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+
         # Table pour stocker les IDs des items de housing connus
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS known_housing_items (
@@ -171,6 +177,7 @@ class DataManager:
                 min_price INTEGER,
                 avg_price REAL,
                 total_quantity INTEGER,
+                estimated_sales INTEGER DEFAULT 0,
                 recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (pet_id) REFERENCES pets(pet_id)
             )
@@ -181,6 +188,12 @@ class DataManager:
             CREATE INDEX IF NOT EXISTS idx_pet_price_realm 
             ON pet_price_history(pet_id, realm_id)
         """)
+
+        # Migration: ajouter colonne estimated_sales à pet_price_history
+        try:
+            cursor.execute("ALTER TABLE pet_price_history ADD COLUMN estimated_sales INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
         
         conn.commit()
         conn.close()
@@ -252,7 +265,6 @@ class DataManager:
         conn.close()
         
         return [dict(row) for row in rows]
-    
     def update_icon_url(self, item_id: int, icon_url: str):
         """Met à jour l'URL de l'icône d'un item"""
         conn = self._get_connection()
@@ -327,8 +339,8 @@ class DataManager:
 
     def batch_record_price_data(self, price_data_list: List[Tuple]):
         """
-        Enregistre un lot de données de prix.
-        Format: [(item_id, realm_id, min_price, avg_price, total_quantity, auction_count), ...]
+        Enregistre un lot de données de prix
+        Format: [(item_id, realm_id, min_price, avg_price, total_quantity, auction_count, estimated_sales), ...]
         """
         if not price_data_list:
             return
@@ -338,8 +350,8 @@ class DataManager:
         
         cursor.executemany("""
             INSERT INTO price_history 
-            (item_id, realm_id, min_price, avg_price, total_quantity, auction_count)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (item_id, realm_id, min_price, avg_price, total_quantity, auction_count, estimated_sales)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """, price_data_list)
         
         conn.commit()
@@ -515,6 +527,15 @@ class DataManager:
             FROM price_history
             WHERE realm_id = ?
         ),
+        sales_3days AS (
+            -- Ventes estimées (somme) sur les 3 derniers jours
+            SELECT 
+                item_id,
+                SUM(estimated_sales) as sales_3d
+            FROM price_history
+            WHERE realm_id = ? AND recorded_at >= datetime('now', '-3 days')
+            GROUP BY item_id
+        ),
         min_price_3days AS (
             -- Prix minimum sur les 3 derniers jours (plus représentatif)
             SELECT 
@@ -551,10 +572,12 @@ class DataManager:
             lp.recorded_at,
             hs.hist_avg_price,
             wsv.start_quantity,
+            COALESCE(s3.sales_3d, 0) as sales_3d,
             r.recipe_id,
             r.profession_name
         FROM housing_items hi
         LEFT JOIN latest_prices lp ON hi.item_id = lp.item_id AND lp.rn = 1
+        LEFT JOIN sales_3days s3 ON hi.item_id = s3.item_id
         LEFT JOIN min_price_3days mp3 ON hi.item_id = mp3.item_id
         LEFT JOIN historical_stats hs ON hi.item_id = hs.item_id
         LEFT JOIN week_start_volume wsv ON hi.item_id = wsv.item_id AND wsv.rn = 1
@@ -562,7 +585,7 @@ class DataManager:
         ORDER BY hi.name
     """
         
-        cursor.execute(query, (realm_id, realm_id, realm_id, realm_id))
+        cursor.execute(query, (realm_id, realm_id, realm_id, realm_id, realm_id))
         rows = cursor.fetchall()
         conn.close()
         
@@ -581,6 +604,7 @@ class DataManager:
                 "total_quantity": row["total_quantity"],
                 "auction_count": row["auction_count"],
                 "recorded_at": row["recorded_at"],
+                "sales_3d": row["sales_3d"],
                 "trend": None,
                 "volume_change": None,
                 "profession_name": row["profession_name"],
@@ -1317,10 +1341,20 @@ class DataManager:
         
         # Récupérer les derniers prix pour chaque pet sur ce serveur
         # COALESCE is_tradable to 1 (true) if NULL - most WoW pets are tradable
+        # Ajouter le calcul des ventes estimées sur les 3 derniers jours (sales_3d)
+        cutoff_3d = datetime.now() - timedelta(days=3)
+        
         cursor.execute("""
             SELECT p.pet_id, p.name, p.icon_url, p.source, p.creature_type, p.creature_id, 
                    COALESCE(p.is_tradable, 1) as is_tradable,
-                   ph.min_price, ph.total_quantity, ph.quality_id, ph.level
+                   ph.min_price, ph.total_quantity, ph.quality_id, ph.level,
+                   (
+                       SELECT SUM(estimated_sales)
+                       FROM pet_price_history history
+                       WHERE history.pet_id = p.pet_id 
+                       AND history.realm_id = ?
+                       AND history.recorded_at >= ?
+                   ) as sales_3d
             FROM pets p
             LEFT JOIN (
                 SELECT pet_id, min_price, total_quantity, quality_id, level,
@@ -1329,7 +1363,7 @@ class DataManager:
                 WHERE realm_id = ?
             ) ph ON p.pet_id = ph.pet_id AND ph.rn = 1
             ORDER BY p.name
-        """, (realm_id,))
+        """, (realm_id, cutoff_3d, realm_id))
         
         rows = cursor.fetchall()
         conn.close()
@@ -1466,10 +1500,13 @@ class DataManager:
         conn.commit()
         conn.close()
 
+        conn.commit()
+        conn.close()
+
     def batch_record_pet_prices(self, pet_data_list: List[Tuple]):
         """
         Enregistre un lot de données de prix pour les pets.
-        Format: [(pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level), ...]
+        Format: [(pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level, estimated_sales), ...]
         """
         if not pet_data_list:
             return
@@ -1479,8 +1516,8 @@ class DataManager:
         
         cursor.executemany("""
             INSERT INTO pet_price_history 
-            (pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level, estimated_sales)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, pet_data_list)
         
         conn.commit()

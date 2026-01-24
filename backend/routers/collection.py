@@ -43,12 +43,12 @@ async def get_character_collection(
         db_pets = {p["pet_id"]: p for p in dm.get_pets()}
         
         # Pre-fetch prices if realm_id provided
-        price_map = {}
+        summary_map = {}
         if realm_id:
             # Use get_pets_summary to get prices for this specific realm
             # This ensures consistency with the Pets page
             summary_pets = dm.get_pets_summary(realm_id)
-            price_map = {p["pet_id"]: p["min_price"] for p in summary_pets if p.get("min_price")}
+            summary_map = {p["pet_id"]: p for p in summary_pets}
         
         # Build response with price data
         result_pets = []
@@ -73,8 +73,11 @@ async def get_character_collection(
             if species_id:
                 if realm_id:
                     # Constant time lookup from pre-fetched map
-                    price = price_map.get(species_id)
+                    summary_info = summary_map.get(species_id, {})
+                    price = summary_info.get("min_price")
+                    sales_3d = summary_info.get("sales_3d", 0)
                 else:
+                    sales_3d = 0 # Cannot calculate sales without realm context
                     # Fallback to old behavior: minimum price across ALL realms (SLOW & DIFFERENT)
                     prices = dm.get_pet_all_realms_prices(species_id)
                     if prices:
@@ -96,7 +99,9 @@ async def get_character_collection(
                 "creature_type": db_pet.get("creature_type", "-"),
                 "source": db_pet.get("source", "Inconnue"),
                 "icon_url": db_pet.get("icon_url"),
+                "icon_url": db_pet.get("icon_url"),
                 "min_price": price,
+                "sales_3d": sales_3d,
                 "is_tradable": is_tradable
             })
         
