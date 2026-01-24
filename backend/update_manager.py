@@ -513,6 +513,7 @@ class UpdateManager:
         """
         Synchronise la liste des pets depuis l'API Blizzard.
         Récupère tous les pets tradables avec leurs détails (source, type, icône).
+        Optimisé avec des batchs DB pour éviter de bloquer.
         """
         try:
             self.status_message = "Récupération de la liste des pets..."
@@ -521,6 +522,9 @@ class UpdateManager:
             print(f"Found {total_pets} pets in API")
             
             synced_count = 0
+            batch_pets = []
+            BATCH_SIZE = 50
+            
             for i, pet_ref in enumerate(pets_index):
                 if self._stop_event.is_set():
                     return
@@ -542,20 +546,31 @@ class UpdateManager:
                     if not pet_details.get("is_tradable", False):
                         continue
                     
-                    # Sauvegarder le pet
-                    dm.save_pet(
-                        pet_id=pet_id,
-                        name=pet_details.get("name", ""),
-                        icon_url=pet_details.get("icon_url"),
-                        source=pet_details.get("source", ""),
-                        creature_type=pet_details.get("creature_type", ""),
-                        creature_id=pet_details.get("creature_id"),
-                        is_tradable=True
-                    )
+                    batch_pets.append({
+                        "pet_id": pet_id,
+                        "name": pet_details.get("name", ""),
+                        "icon_url": pet_details.get("icon_url"),
+                        "source": pet_details.get("source", ""),
+                        "creature_type": pet_details.get("creature_type", ""),
+                        "creature_id": pet_details.get("creature_id"),
+                        "is_tradable": True
+                    })
+                    
                     synced_count += 1
+                    
+                    # Sauvegarder par batch
+                    if len(batch_pets) >= BATCH_SIZE:
+                        dm.save_pets_batch(batch_pets)
+                        batch_pets = []
+                        # Petit sleep pour laisser respirer le serveur si besoin
+                        # time.sleep(0.05) 
                     
                 except Exception as e:
                     continue
+            
+            # Sauvegarder le reste
+            if batch_pets:
+                dm.save_pets_batch(batch_pets)
             
             print(f"Pet sync complete: {synced_count} tradable pets synced")
             

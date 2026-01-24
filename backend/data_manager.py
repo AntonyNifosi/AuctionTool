@@ -1017,7 +1017,19 @@ class DataManager:
         for row in cursor.fetchall():
             sell_prices[row["item_id"]] = row["min_price"]
         
-        # Récupérer le stock actuel (dernière valeur)
+        # Calculer le volume de ventes estimé (sales_3d)
+        cursor.execute("""
+            SELECT item_id, SUM(estimated_sales) as sales_3d
+            FROM price_history
+            WHERE realm_id = ? AND recorded_at >= datetime('now', '-3 days')
+            GROUP BY item_id
+        """, (realm_id,))
+        
+        sales_volume = {}
+        for row in cursor.fetchall():
+            sales_volume[row["item_id"]] = row["sales_3d"] or 0
+        
+        # Récupérer le stock actuel (dernière valeur) - Garder pour info ou calcul score
         cursor.execute("""
             SELECT item_id, total_quantity
             FROM price_history
@@ -1054,14 +1066,7 @@ class DataManager:
         
         conn.close()
         
-        # Calculer le volume échangé (vendu) = stock début - stock actuel
-        # Si positif = items vendus, si négatif = items ajoutés (on prend max 0)
-        traded_volume = {}
-        for item_id in set(current_stock.keys()) | set(start_stock.keys()):
-            start = start_stock.get(item_id, 0)
-            current = current_stock.get(item_id, 0)
-            # Volume vendu = réduction du stock (max 0 pour ignorer les ajouts)
-            traded_volume[item_id] = max(0, start - current)
+        # On utilise sales_volume (sales_3d) comme métrique principale de volume
         
         # Calculer les craft costs en batch
         craft_costs = self._batch_calculate_craft_costs(realm_id)
@@ -1084,7 +1089,7 @@ class DataManager:
             item_id = row["crafted_item_id"]
             craft_cost = craft_costs.get(item_id, 0)
             sell_price = sell_prices.get(item_id, 0)
-            volume = traded_volume.get(item_id, 0)
+            volume = sales_volume.get(item_id, 0) # Use sales_3d
             
             # Calculs de base
             profit = (sell_price - craft_cost) if sell_price and craft_cost else None
@@ -1334,6 +1339,26 @@ class DataManager:
         conn.commit()
         conn.close()
 
+    def save_pets_batch(self, pets_data: List[Dict]):
+        """Sauvegarde une liste de pets en une seule transaction"""
+        if not pets_data:
+            return
+            
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.executemany("""
+                INSERT OR REPLACE INTO pets 
+                (pet_id, name, icon_url, source, creature_type, creature_id, is_tradable)
+                VALUES (:pet_id, :name, :icon_url, :source, :creature_type, :creature_id, :is_tradable)
+            """, pets_data)
+            conn.commit()
+        except Exception as e:
+            print(f"Error in batch save pets: {e}")
+        finally:
+            conn.close()
+
     def get_pets_summary(self, realm_id: int) -> List[Dict]:
         """Récupère un résumé de tous les pets avec leurs prix pour un serveur"""
         conn = self._get_connection()
@@ -1429,6 +1454,14 @@ class DataManager:
                 FROM pet_price_history
                 WHERE pet_id = ?
             ),
+            Sales3D AS (
+                SELECT 
+                    realm_id,
+                    SUM(estimated_sales) as sales_3d
+                FROM pet_price_history
+                WHERE pet_id = ? AND recorded_at >= ?
+                GROUP BY realm_id
+            ),
             MinPriceWindow AS (
                 SELECT realm_id, MIN(min_price) as min_price_window
                 FROM pet_price_history
@@ -1441,12 +1474,14 @@ class DataManager:
                 r.region,
                 l.realm_id,
                 COALESCE(mp.min_price_window, l.min_price) as min_price,
-                l.total_quantity
+                l.total_quantity,
+                COALESCE(s.sales_3d, 0) as sales_3d
             FROM Latest l
             JOIN realms r ON l.realm_id = r.realm_id
             LEFT JOIN MinPriceWindow mp ON l.realm_id = mp.realm_id
+            LEFT JOIN Sales3D s ON l.realm_id = s.realm_id
             WHERE l.rn = 1
-        """, (pet_id, pet_id, start_date))
+        """, (pet_id, start_date, pet_id, start_date))
         
         rows = cursor.fetchall()
         conn.close()

@@ -57,8 +57,8 @@ async def get_craft_profits(
     expansion: Optional[str] = Query(None, description="Filter by single expansion (deprecated)"),
     expansions: Optional[str] = Query(None, description="Comma-separated expansion names"),
     min_profit: int = Query(0, ge=0, description="Minimum profit in copper"),
-    min_volume: int = Query(0, ge=0, description="Minimum sales volume"),
-    sort_by: str = Query("profit", description="Sort by: profit, profit_margin, name, sell_price, craft_cost"),
+    min_volume: int = Query(0, ge=0, description="Minimum sales (3d)"),
+    sort_by: str = Query("profit", description="Sort by: profit, profit_margin, name, sell_price, craft_cost, volume"),
     sort_order: str = Query("desc", description="Sort order: asc, desc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200)
@@ -127,6 +127,8 @@ async def get_craft_profits(
         items = sort_with_none_at_end(items, "craft_cost", reverse)
     elif sort_by == "name":
         items = sorted(items, key=lambda x: (x.get("name") or "").lower(), reverse=reverse)
+    elif sort_by == "volume":
+        items = sort_with_none_at_end(items, "volume", reverse)
     
     # Pagination
     total = len(items)

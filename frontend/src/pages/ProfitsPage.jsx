@@ -338,7 +338,7 @@ function ProfitsPage() {
                                 Marge{getSortIndicator('profit_margin')}
                             </th>
                             <th onClick={() => handleSort('volume')} style={{ cursor: 'pointer', textAlign: 'right' }}>
-                                Volume{getSortIndicator('volume')}
+                                Ventes (3j){getSortIndicator('volume')}
                             </th>
                             <th onClick={() => handleSort('score')} style={{ cursor: 'pointer', textAlign: 'center' }}>
                                 Score{getSortIndicator('score')}

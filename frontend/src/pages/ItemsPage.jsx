@@ -170,11 +170,7 @@ function ItemsPage() {
                                     <div className="mobile-card-meta">
                                         <span className="badge">{item.category}</span>
                                         <span>Ventes: {item.sales_3d ?? 0}/3j</span>
-                                        {item.volume_change !== 0 && (
-                                            <span className={item.volume_change > 0 ? 'text-success' : 'text-danger'} style={{ fontSize: '0.75rem' }}>
-                                                ({formatVolumeChange(item.volume_change)})
-                                            </span>
-                                        )}
+                                        <span>Ventes: {item.sales_3d ?? 0}/3j</span>
                                     </div>
 
                                     <div className="mobile-card-footer">
@@ -220,6 +216,7 @@ function ItemsPage() {
                             >
                                 Prix Min{getSortIcon('min_price')}
                             </th>
+                            <th>Métier</th>
                             <th
                                 className="sortable"
                                 onClick={() => handleSort('sales_3d')}
@@ -232,8 +229,6 @@ function ItemsPage() {
                             >
                                 Tendance{getSortIcon('trend')}
                             </th>
-                            <th>Vol. Δ</th>
-                            <th>Métier</th>
                             <th>Maj</th>
                         </tr>
                     </thead>
@@ -246,7 +241,6 @@ function ItemsPage() {
                                     <td><div className="skeleton" style={{ width: 200, height: 20 }} /></td>
                                     <td><div className="skeleton" style={{ width: 100, height: 20 }} /></td>
                                     <td><div className="skeleton" style={{ width: 80, height: 20 }} /></td>
-                                    <td><div className="skeleton" style={{ width: 50, height: 20 }} /></td>
                                     <td><div className="skeleton" style={{ width: 70, height: 20 }} /></td>
                                     <td><div className="skeleton" style={{ width: 50, height: 20 }} /></td>
                                     <td><div className="skeleton" style={{ width: 70, height: 20 }} /></td>
@@ -287,17 +281,12 @@ function ItemsPage() {
                                     <td>
                                         <PriceDisplay value={item.min_price} />
                                     </td>
+                                    <td>
+                                        <span className="text-muted">{item.profession_name || '-'}</span>
+                                    </td>
                                     <td>{item.sales_3d ?? 0}</td>
                                     <td>
                                         <TrendBadge value={item.trend} />
-                                    </td>
-                                    <td>
-                                        <span className={item.volume_change > 0 ? 'text-success' : item.volume_change < 0 ? 'text-danger' : ''}>
-                                            {formatVolumeChange(item.volume_change)}
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <span className="text-muted">{item.profession_name || '-'}</span>
                                     </td>
                                     <td>
                                         <span className="text-muted">{formatTimeDiff(item.recorded_at)}</span>
