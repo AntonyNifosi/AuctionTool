@@ -73,24 +73,17 @@ async def get_craft_profits(
             profession_ids = [int(p) for p in professions.split(",")]
         except ValueError:
             pass
-    
-    # Get profit data
-    items = dm.get_craftable_items_profit(realm_id, profession_ids)
-    
+            
     # Parse expansion list
     expansion_list = []
     if expansions:
-        expansion_list = [e.strip().lower() for e in expansions.split(",") if e.strip()]
+        expansion_list = [e.strip() for e in expansions.split(",") if e.strip()]
     elif expansion:
         # Backward compatibility with single expansion
-        expansion_list = [expansion.lower()]
+        expansion_list = [expansion]
     
-    # Filter by expansions
-    if expansion_list:
-        items = [
-            item for item in items
-            if any(exp in (item.get("expansion") or "").lower() for exp in expansion_list)
-        ]
+    # Get profit data (Optimized with SQL filtering)
+    items = dm.get_craftable_items_profit(realm_id, profession_ids, expansion_list)
     
     # Filter by minimum profit
     if min_profit > 0:
@@ -160,14 +153,13 @@ async def get_expansions(realm_id: int = Query(...)):
     """Get available expansions that have craftable items"""
     dm = get_data_manager()
     
-    items = dm.get_craftable_items_profit(realm_id)
+    # Use optimized method to get distinct expansions directly from recipes
+    raw_expansions = dm.get_all_expansions()
     
     expansions = set()
-    for item in items:
-        raw_exp = item.get("expansion")
-        if raw_exp:
-            display_exp = extract_expansion_name(raw_exp)
-            if display_exp:
-                expansions.add(display_exp)
+    for raw_exp in raw_expansions:
+        display_exp = extract_expansion_name(raw_exp)
+        if display_exp:
+            expansions.add(display_exp)
     
     return {"expansions": sorted(list(expansions))}

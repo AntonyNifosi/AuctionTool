@@ -956,34 +956,80 @@ class DataManager:
         
         return {row[0] for row in rows if row[0]}
     
-    def _batch_calculate_craft_costs(self, realm_id: int) -> Dict[int, int]:
+    def _batch_calculate_craft_costs(self, realm_id: int, item_ids: List[int] = None) -> Dict[int, int]:
         """
         Calcule tous les craft costs en une seule passe pour la performance.
+        Si item_ids est fourni, ne calcule que pour ces items.
         Retourne un dict {item_id: craft_cost}
         """
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # 1. Récupérer toutes les recettes et leurs réactifs en une requête
-        cursor.execute("""
-            SELECT r.crafted_item_id, rr.reagent_item_id, rr.quantity
-            FROM recipes r
-            JOIN recipe_reagents rr ON r.recipe_id = rr.recipe_id
-        """)
+        # 1. Récupérer toutes les recettes et leurs réactifs
+        if item_ids:
+            placeholders = ",".join("?" * len(item_ids))
+            cursor.execute(f"""
+                SELECT r.crafted_item_id, rr.reagent_item_id, rr.quantity
+                FROM recipes r
+                JOIN recipe_reagents rr ON r.recipe_id = rr.recipe_id
+                WHERE r.crafted_item_id IN ({placeholders})
+            """, item_ids)
+        else:
+            cursor.execute("""
+                SELECT r.crafted_item_id, rr.reagent_item_id, rr.quantity
+                FROM recipes r
+                JOIN recipe_reagents rr ON r.recipe_id = rr.recipe_id
+            """)
         recipe_reagents = cursor.fetchall()
         
-        # 2. Récupérer tous les prix de réactifs (local + régional) en une requête
-        cursor.execute("""
-            SELECT item_id, realm_id, min_price
-            FROM price_history
-            WHERE realm_id IN (?, 0)
-            AND (item_id, realm_id, recorded_at) IN (
-                SELECT item_id, realm_id, MAX(recorded_at)
+        # Collecter les IDs de réactifs nécessaires
+        reagent_ids = set()
+        for _, r_id, _ in recipe_reagents:
+            reagent_ids.add(r_id)
+            
+        if not reagent_ids:
+            conn.close()
+            return {}
+            
+        # 2. Récupérer les prix de ces réactifs (local + régional)
+        # On ne récupère QUE les prix des réactifs nécessaires
+        placeholders_reagents = ",".join("?" * len(reagent_ids))
+        
+        # Note: Pour une liste très longue de réactifs, IN (...) peut être lent ou limité
+        # Mais c'est mieux que TOUT scanner si on a filtré les items.
+        # Si item_ids est None (tout), on garde la logique optimisée globale sans filtre IN
+        
+        if item_ids and len(reagent_ids) < 1000: # Seuil arbitraire pour passer en filtre
+             query = f"""
+                SELECT item_id, realm_id, min_price
                 FROM price_history
                 WHERE realm_id IN (?, 0)
-                GROUP BY item_id, realm_id
-            )
-        """, (realm_id, realm_id))
+                AND item_id IN ({placeholders_reagents})
+                AND (item_id, realm_id, recorded_at) IN (
+                    SELECT item_id, realm_id, MAX(recorded_at)
+                    FROM price_history
+                    WHERE realm_id IN (?, 0)
+                    AND item_id IN ({placeholders_reagents})
+                    GROUP BY item_id, realm_id
+                )
+            """
+             # Params: realm_id, *reagent_ids, realm_id, *reagent_ids
+             params = [realm_id] + list(reagent_ids) + [realm_id] + list(reagent_ids)
+             cursor.execute(query, params)
+        else:
+            # Fallback ou global scan
+            cursor.execute("""
+                SELECT item_id, realm_id, min_price
+                FROM price_history
+                WHERE realm_id IN (?, 0)
+                AND (item_id, realm_id, recorded_at) IN (
+                    SELECT item_id, realm_id, MAX(recorded_at)
+                    FROM price_history
+                    WHERE realm_id IN (?, 0)
+                    GROUP BY item_id, realm_id
+                )
+            """, (realm_id, realm_id))
+            
         price_rows = cursor.fetchall()
         conn.close()
         
@@ -1014,13 +1060,23 @@ class DataManager:
         
         return craft_costs
     
-    def get_craftable_items_profit(self, realm_id: int, profession_ids: List[int] = None) -> List[Dict]:
+    def get_all_expansions(self) -> List[str]:
+        """Récupère toutes les expansions uniques pour les filtres"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT expansion FROM recipes WHERE expansion IS NOT NULL AND expansion != '' ORDER BY expansion")
+        rows = cursor.fetchall()
+        conn.close()
+        return [row[0] for row in rows]
+
+    def get_craftable_items_profit(self, realm_id: int, profession_ids: List[int] = None, expansions: List[str] = None) -> List[Dict]:
         """
         Récupère tous les items craftables avec calcul du profit.
         
         Args:
             realm_id: ID du serveur pour les prix de vente
             profession_ids: Liste optionnelle d'IDs de professions pour filtrer
+            expansions: Liste optionnelle d'expansions pour filtrer (exact match ou substring match via LIKE si besoin, ici on fera simple)
             
         Returns:
             Liste de dicts avec item_id, name, profession_name, craft_cost, 
@@ -1029,81 +1085,133 @@ class DataManager:
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # Récupérer tous les items avec recettes
+        # Construction de la requête de base
+        query = """
+            SELECT r.crafted_item_id, hi.name, hi.icon_url, hi.category,
+                   r.profession_id, r.profession_name, r.expansion
+            FROM recipes r
+            JOIN housing_items hi ON r.crafted_item_id = hi.item_id
+            WHERE 1=1
+        """
+        params = []
+        
+        # Filtre Professions
         if profession_ids:
             placeholders = ",".join("?" * len(profession_ids))
-            query = f"""
-                SELECT r.crafted_item_id, hi.name, hi.icon_url, hi.category,
-                       r.profession_id, r.profession_name, r.expansion
-                FROM recipes r
-                JOIN housing_items hi ON r.crafted_item_id = hi.item_id
-                WHERE r.profession_id IN ({placeholders})
-            """
-            cursor.execute(query, profession_ids)
-        else:
-            cursor.execute("""
-                SELECT r.crafted_item_id, hi.name, hi.icon_url, hi.category,
-                       r.profession_id, r.profession_name, r.expansion
-                FROM recipes r
-                JOIN housing_items hi ON r.crafted_item_id = hi.item_id
-            """)
+            query += f" AND r.profession_id IN ({placeholders})"
+            params.extend(profession_ids)
+            
+        # Filtre Expansions
+        if expansions:
+            # On utilise LIKE pour matcher flexiblement ou IN pour exact.
+            # Le router passe des noms "propres" (ex: "The War Within"). 
+            # Dans la DB c'est souvent "The War Within" ou "Dragon Isles".
+            # On va utiliser une clause OR avec LIKE pour chaque expansion demandée
+            # pour matcher "The War Within" dans "Expansion: The War Within" par exemple si c'est formaté ainsi,
+            # ou simplement IN si la colonne expansion est propre.
+            # Supposons que la colonne expansion contient le nom exact ou partiel.
+            
+            exp_conditions = []
+            for exp in expansions:
+                exp_conditions.append("r.expansion LIKE ?")
+                params.append(f"%{exp}%")
+            
+            if exp_conditions:
+                query += f" AND ({' OR '.join(exp_conditions)})"
+
+        cursor.execute(query, params)
         
         recipe_items = cursor.fetchall()
         
+        # Optimization: Si on a filtré les items (par profession ou expansion),
+        # on peut restreindre les requêtes suivantes aux seuls item_ids trouvés.
+        item_ids = [row["crafted_item_id"] for row in recipe_items]
+        
+        if not item_ids:
+            conn.close()
+            return []
+            
+        # Limite SQLite pour IN clause (variable, souvent 999 par défaut en Python/SQLite ancien, plus haut recent)
+        # Si on a beaucoup d'items, on scanne tout (plus rapide que IN immense).
+        # Si on a peu d'items (filtre actif), on utilise IN.
+        use_item_filter = (len(item_ids) < 2000) and (profession_ids or expansions)
+        
+        item_filter_sql = ""
+        item_filter_params = []
+        
+        if use_item_filter:
+            placeholders = ",".join("?" * len(item_ids))
+            item_filter_sql = f" AND item_id IN ({placeholders})"
+            item_filter_params = list(item_ids)
+            
         # Récupérer les prix de vente minimum sur les 3 derniers jours (plus représentatif)
-        cursor.execute("""
+        query_price = f"""
             SELECT item_id, MIN(min_price) as min_price
             FROM price_history
             WHERE realm_id = ? AND recorded_at >= datetime('now', '-3 days') AND min_price > 0
+            {item_filter_sql}
             GROUP BY item_id
-        """, (realm_id,))
+        """
+        cursor.execute(query_price, [realm_id] + item_filter_params)
         
         sell_prices = {}
         for row in cursor.fetchall():
             sell_prices[row["item_id"]] = row["min_price"]
         
         # Calculer le volume de ventes estimé (sales_3d)
-        cursor.execute("""
+        query_sales = f"""
             SELECT item_id, SUM(estimated_sales) as sales_3d
             FROM price_history
             WHERE realm_id = ? AND recorded_at >= datetime('now', '-3 days')
+            {item_filter_sql}
             GROUP BY item_id
-        """, (realm_id,))
+        """
+        cursor.execute(query_sales, [realm_id] + item_filter_params)
         
         sales_volume = {}
         for row in cursor.fetchall():
             sales_volume[row["item_id"]] = row["sales_3d"] or 0
         
-        # Récupérer le stock actuel (dernière valeur) - Garder pour info ou calcul score
-        cursor.execute("""
+        # Récupérer le stock actuel (dernière valeur)
+        # Note: Pour le stock actuel, la sous-requête MAX(recorded_at) peut être optimisée aussi
+        current_stock_query = f"""
             SELECT item_id, total_quantity
             FROM price_history
             WHERE realm_id = ?
+            {item_filter_sql}
             AND (item_id, recorded_at) IN (
                 SELECT item_id, MAX(recorded_at)
                 FROM price_history
                 WHERE realm_id = ?
+                {item_filter_sql}
                 GROUP BY item_id
             )
-        """, (realm_id, realm_id))
+        """
+        params_stock = [realm_id] + item_filter_params + [realm_id] + item_filter_params
+        cursor.execute(current_stock_query, params_stock)
         
         current_stock = {}
         for row in cursor.fetchall():
             current_stock[row["item_id"]] = row["total_quantity"] or 0
         
-        # Récupérer le stock au début de la semaine (il y a 7 jours)
-        cursor.execute("""
+        # Récupérer le stock au début de la semaine
+        # On simplifie ou on garde, mais on peut aussi filtrer
+        start_stock_query = f"""
             SELECT item_id, total_quantity
             FROM price_history
             WHERE realm_id = ?
             AND recorded_at >= datetime('now', '-7 days')
+            {item_filter_sql}
             AND (item_id, recorded_at) IN (
                 SELECT item_id, MIN(recorded_at)
                 FROM price_history
                 WHERE realm_id = ? AND recorded_at >= datetime('now', '-7 days')
+                {item_filter_sql}
                 GROUP BY item_id
             )
-        """, (realm_id, realm_id))
+        """
+        params_start_stock = [realm_id] + item_filter_params + [realm_id] + item_filter_params
+        cursor.execute(start_stock_query, params_start_stock)
         
         start_stock = {}
         for row in cursor.fetchall():
@@ -1113,46 +1221,52 @@ class DataManager:
         
         # On utilise sales_volume (sales_3d) comme métrique principale de volume
         
-        # Calculer les craft costs en batch
-        craft_costs = self._batch_calculate_craft_costs(realm_id)
+        # Calculer les craft costs en batch (optimisé pour les items filtrés)
+        # item_ids déjà calculé plus haut
+        if use_item_filter:
+            craft_costs = self._batch_calculate_craft_costs(realm_id, item_ids)
+        else:
+            craft_costs = self._batch_calculate_craft_costs(realm_id, None)
         
         # 4. Calculer Profits et Scores
         results = []
         
-        # Variables pour normalisation
-        max_profit = 0
-        min_profit = float('inf')
-        max_volume = 0
-        min_volume = float('inf')
-        max_cost = 0
-        min_cost = float('inf')
+        # Constantes pour la normalisation du score (Score Absolu)
+        # Ajusté suite au feedback user : 10k PO et 500 ventes/3j
+        TARGET_MAX_PROFIT = 10000 * 10000 # 10k gold
+        TARGET_MAX_VOLUME = 500 # 500 ventes sur 3 jours (~160/jour)
         
-        has_items = False
+        results = []
         
-        # Première passe : Calculs de base et min/max
         for row in recipe_items:
             item_id = row["crafted_item_id"]
             craft_cost = craft_costs.get(item_id, 0)
             sell_price = sell_prices.get(item_id, 0)
-            volume = sales_volume.get(item_id, 0) # Use sales_3d
+            volume = sales_volume.get(item_id, 0)
             
             # Calculs de base
             profit = (sell_price - craft_cost) if sell_price and craft_cost else None
             profit_margin = ((profit / craft_cost) * 100) if profit and craft_cost > 0 else None
             
-            # Mise à jour des min/max pour normalisation
-            if profit is not None and profit > 0:
-                max_profit = max(max_profit, profit)
-                min_profit = min(min_profit, profit)
-                has_items = True
-            
-            if volume > 0:
-                max_volume = max(max_volume, volume)
-                min_volume = min(min_volume, volume)
+            # Calcul du Score Absolu
+            score = 0
+            if profit and profit > 0:
+                # Normalisation Profit (linéaire bornée)
+                p_score = min(profit, TARGET_MAX_PROFIT) / TARGET_MAX_PROFIT
                 
-            if craft_cost > 0:
-                max_cost = max(max_cost, craft_cost)
-                min_cost = min(min_cost, craft_cost)
+                # Normalisation Volume (linéaire bornée)
+                v_score = min(volume, TARGET_MAX_VOLUME) / TARGET_MAX_VOLUME
+                
+                # Pondération : 70% Profit, 30% Volume
+                score = (p_score * 70) + (v_score * 30)
+                
+                # Bonus margin (petit boost jusqu'à +10 si margin > 20%)
+                if profit_margin and profit_margin > 20:
+                     score += min((profit_margin - 20) / 2, 10)
+                     
+                score = min(score, 100) # Cape à 100
+            else:
+                score = -1000.0 # No profit
             
             results.append({
                 "item_id": item_id,
@@ -1167,39 +1281,9 @@ class DataManager:
                 "profit": profit,
                 "profit_margin": round(profit_margin, 1) if profit_margin else None,
                 "volume": volume,
-                # Score calculé ci-dessous
+                "score": score
             })
             
-        # Deuxième passe : Calcul du Score normalisé
-        for item in results:
-            score = 0
-            if item["profit"] and item["profit"] > 0 and has_items:
-                # 1. Profit Score (40%) - Higher is better
-                p_norm = 0.5
-                if max_profit > min_profit:
-                    p_norm = (item["profit"] - min_profit) / (max_profit - min_profit)
-                
-                # 2. Volume Score (40%) - Higher is better
-                v_norm = 0
-                if max_volume > min_volume:
-                    v_norm = (item["volume"] - min_volume) / (max_volume - min_volume)
-                elif item["volume"] > 0 and max_volume == min_volume:
-                    v_norm = 1.0
-                
-                # 3. Cost Score (20%) - Lower is better -> 1 - norm
-                c_norm = 0.5
-                cost = item["craft_cost"]
-                if cost and max_cost > min_cost:
-                    raw_norm = (cost - min_cost) / (max_cost - min_cost)
-                    c_norm = 1.0 - raw_norm
-                elif cost and max_cost == min_cost:
-                    c_norm = 1.0
-                
-                # Formula: 40% Profit + 40% Volume + 20% Cost
-                score = (p_norm * 0.4 + v_norm * 0.4 + c_norm * 0.2) * 100
-            
-            item["score"] = score
-        
         # Trier par score décroissant
         results.sort(key=lambda x: x["score"] or 0, reverse=True)
         
