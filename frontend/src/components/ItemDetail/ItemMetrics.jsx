@@ -24,13 +24,15 @@ export function ItemMetrics({ item, itemDetail, sales3d, styles }) {
         <div className={`${styles?.statsGrid || 'stats-grid'} stats-grid`}>
             <div className="stat-card">
                 <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                    <PriceDisplay value={itemDetail?.current_price ?? item.min_price} />
+                    <PriceDisplay value={itemDetail?.min_price_3d ?? item.min_price} />
                 </div>
-                <div className="stat-label">💰 Prix Minimum</div>
+                <div className="stat-label">💰 Prix Min (3j)</div>
             </div>
             <div className="stat-card">
-                <div className="stat-value"><PriceDisplay value={itemDetail?.avg_price ?? item.avg_price} /></div>
-                <div className="stat-label">📊 Prix Moyen</div>
+                <div className="stat-value">
+                    <PriceDisplay value={itemDetail?.current_price} />
+                </div>
+                <div className="stat-label">🏷️ Prix Actuel</div>
             </div>
             <div className="stat-card">
                 <div className="stat-value"><TrendBadge value={itemDetail?.trend ?? item.trend} /></div>

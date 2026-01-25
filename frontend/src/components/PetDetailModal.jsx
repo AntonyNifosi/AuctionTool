@@ -110,7 +110,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
         }
 
         const scored = filtered.map(server => {
-            const price = server.min_price
+            const price = server.min_price_3d ?? server.min_price
             const sale = server.sales_3d || 0
             const popType = server.population || 'UNKNOWN'
 
@@ -149,7 +149,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                     {payload.map((p, i) => (
                         <p key={i} style={{ color: p.color, margin: 0 }}>
                             {p.name}: {
-                                p.dataKey === 'min_price' || p.dataKey === 'avg_price'
+                                p.dataKey === 'min_price' || p.dataKey === 'avg_price' || p.dataKey === 'min_price_3d'
                                     ? `${p.value?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}g`
                                     : p.value?.toLocaleString()
                             }
@@ -346,7 +346,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                             </span>
                                                         </div>
                                                         <div className={styles.mobileListRow}>
-                                                            <span>Prix: <PriceDisplay value={server.min_price} /></span>
+                                                            <span>Prix (3j): <PriceDisplay value={server.min_price_3d ?? server.min_price} /></span>
                                                             <span className="text-muted">Pop: {server.populationLabel || transformPop(server.population)}</span>
                                                         </div>
                                                         <div className={styles.mobileListRow}>
@@ -380,8 +380,11 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                             <th onClick={() => handleSort('realm_name')} style={{ cursor: 'pointer' }}>
                                                                 Serveur{getSortIndicator('realm_name')}
                                                             </th>
+                                                            <th onClick={() => handleSort('min_price_3d')} style={{ cursor: 'pointer' }}>
+                                                                Prix Min (3j){getSortIndicator('min_price_3d')}
+                                                            </th>
                                                             <th onClick={() => handleSort('min_price')} style={{ cursor: 'pointer' }}>
-                                                                Prix Min{getSortIndicator('min_price')}
+                                                                Prix Actuel{getSortIndicator('min_price')}
                                                             </th>
                                                             <th onClick={() => handleSort('sales_3d')} style={{ cursor: 'pointer' }}>
                                                                 Ventes (3j){getSortIndicator('sales_3d')}
@@ -402,6 +405,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                                     )}
                                                                     {price.realm_name}
                                                                 </td>
+                                                                <td><PriceDisplay value={price.min_price_3d ?? price.min_price} /></td>
                                                                 <td><PriceDisplay value={price.min_price} /></td>
                                                                 <td>{price.sales_3d ?? 0}</td>
                                                                 <td className="text-muted">{formatTimeDiff(price.recorded_at)}</td>
@@ -426,9 +430,13 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                                 )}
                                                                 <span className="realm-name">{price.realm_name}</span>
                                                             </div>
-                                                            <PriceDisplay value={price.min_price} />
+                                                            <div className="flex flex-col items-end">
+                                                                <span className="text-xs text-muted">3j:</span>
+                                                                <PriceDisplay value={price.min_price_3d ?? price.min_price} />
+                                                            </div>
                                                         </div>
                                                         <div className={styles.mobileListRow}>
+                                                            <span>Actuel: <PriceDisplay value={price.min_price} /></span>
                                                             <span className="text-muted">Ventes: {price.sales_3d ?? 0}</span>
                                                             <span className="text-muted">{formatTimeDiff(price.recorded_at)}</span>
                                                         </div>

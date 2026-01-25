@@ -473,7 +473,7 @@ class DataManager:
         cursor = conn.cursor()
         
         # Date 3 jours en arrière pour le calcul des ventes
-        date_3d = (datetime.now() - timedelta(days=3)).isoformat()
+        date_3d = (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d %H:%M:%S')
         
         cursor.execute("""
             SELECT 
@@ -486,7 +486,8 @@ class DataManager:
                 ph.total_quantity,
                 ph.auction_count,
                 ph.recorded_at,
-                COALESCE(sales.sales_3d, 0) as sales_3d
+                COALESCE(sales.sales_3d, 0) as sales_3d,
+                COALESCE(mp3.min_price_3d, ph.min_price) as min_price_3d
             FROM realms r
             LEFT JOIN (
                 SELECT 
@@ -506,8 +507,14 @@ class DataManager:
                 WHERE item_id = ? AND recorded_at >= ?
                 GROUP BY realm_id
             ) sales ON r.realm_id = sales.realm_id
+            LEFT JOIN (
+                SELECT realm_id, MIN(min_price) as min_price_3d
+                FROM price_history
+                WHERE item_id = ? AND recorded_at >= ?
+                GROUP BY realm_id
+            ) mp3 ON r.realm_id = mp3.realm_id
             ORDER BY r.name
-        """, (item_id, item_id, date_3d))
+        """, (item_id, item_id, date_3d, item_id, date_3d))
         
         rows = cursor.fetchall()
         conn.close()
@@ -674,7 +681,7 @@ class DataManager:
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        date_3d = (datetime.now() - timedelta(days=3)).isoformat()
+        date_3d = (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d %H:%M:%S')
         
         cursor.execute("""
             SELECT SUM(estimated_sales) as total_sales
@@ -687,6 +694,24 @@ class DataManager:
         
         return row["total_sales"] if row and row["total_sales"] is not None else 0
 
+    def get_min_price_3d(self, item_id: int, realm_id: int) -> int:
+        """Calcule le prix minimum sur les 3 derniers jours"""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        date_3d = (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d %H:%M:%S')
+        
+        cursor.execute("""
+            SELECT MIN(min_price) as min_price_3d
+            FROM price_history
+            WHERE item_id = ? AND realm_id = ? AND recorded_at >= ?
+        """, (item_id, realm_id, date_3d))
+        
+        row = cursor.fetchone()
+        conn.close()
+        
+        return row["min_price_3d"] if row and row["min_price_3d"] is not None else 0
+
     def get_best_servers_data(self, item_id: int, days: int = 7) -> List[Dict]:
         """
         Récupère les données pour le classement des meilleurs serveurs.
@@ -697,7 +722,7 @@ class DataManager:
         cursor = conn.cursor()
         
         # Date 3 jours en arrière pour le calcul des ventes
-        date_3d = (datetime.now() - timedelta(days=3)).isoformat()
+        date_3d = (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d %H:%M:%S')
         
         query = """
             WITH Latest AS (
@@ -712,6 +737,12 @@ class DataManager:
                 FROM price_history
                 WHERE item_id = ? AND recorded_at >= ?
                 GROUP BY realm_id
+            ),
+            MinPrice3Days AS (
+                SELECT realm_id, MIN(min_price) as min_price_3d
+                FROM price_history
+                WHERE item_id = ? AND recorded_at >= ?
+                GROUP BY realm_id
             )
             SELECT 
                 r.name as realm_name,
@@ -719,13 +750,15 @@ class DataManager:
                 r.region,
                 l.min_price,
                 l.total_quantity as current_volume,
-                COALESCE(s.sales_3d, 0) as sales_3d
+                COALESCE(s.sales_3d, 0) as sales_3d,
+                COALESCE(mp.min_price_3d, l.min_price) as min_price_3d
             FROM realms r
             JOIN Latest l ON r.realm_id = l.realm_id AND l.rn = 1
             LEFT JOIN Sales3Days s ON r.realm_id = s.realm_id
+            LEFT JOIN MinPrice3Days mp ON r.realm_id = mp.realm_id
         """
         
-        cursor.execute(query, (item_id, item_id, date_3d))
+        cursor.execute(query, (item_id, item_id, date_3d, item_id, date_3d))
         rows = cursor.fetchall()
         conn.close()
         
@@ -749,7 +782,7 @@ class DataManager:
             return []
         
         # Normalisation pour le score
-        prices = [r["min_price"] for r in results]
+        prices = [r["min_price_3d"] for r in results]
         sales = [r["sales_3d"] for r in results]
         
         max_price = max(prices) if prices else 1
@@ -759,7 +792,7 @@ class DataManager:
         
         # Calculer le score pour chaque serveur
         for r in results:
-            price = r["min_price"]
+            price = r["min_price_3d"]
             sale = r["sales_3d"]
             pop = r.get("population") or "UNKNOWN"
             
@@ -1414,12 +1447,13 @@ class DataManager:
         cursor = conn.cursor()
         
         # Date 3 jours en arrière pour le calcul des ventes
-        date_3d = (datetime.now() - timedelta(days=3)).isoformat()
+        date_3d = (datetime.now() - timedelta(days=3)).strftime('%Y-%m-%d %H:%M:%S')
         
         cursor.execute("""
             SELECT r.realm_id, r.name as realm_name, r.population, r.region,
                    ph.min_price, ph.total_quantity, ph.quality_id, ph.level, ph.recorded_at,
-                   COALESCE(sales.sales_3d, 0) as sales_3d
+                   COALESCE(sales.sales_3d, 0) as sales_3d,
+                   COALESCE(mp3.min_price_3d, ph.min_price) as min_price_3d
             FROM realms r
             LEFT JOIN (
                 SELECT realm_id, min_price, total_quantity, quality_id, level, recorded_at,
@@ -1433,8 +1467,14 @@ class DataManager:
                 WHERE pet_id = ? AND recorded_at >= ?
                 GROUP BY realm_id
             ) sales ON r.realm_id = sales.realm_id
+            LEFT JOIN (
+                SELECT realm_id, MIN(min_price) as min_price_3d
+                FROM pet_price_history
+                WHERE pet_id = ? AND recorded_at >= ?
+                GROUP BY realm_id
+            ) mp3 ON r.realm_id = mp3.realm_id
             ORDER BY CASE WHEN ph.min_price IS NULL THEN 1 ELSE 0 END, ph.min_price ASC
-        """, (pet_id, pet_id, date_3d))
+        """, (pet_id, pet_id, date_3d, pet_id, date_3d))
         
         rows = cursor.fetchall()
         conn.close()

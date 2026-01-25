@@ -16,7 +16,7 @@ export function BestServersTable({ bestServers, styles }) {
                         <tr>
                             <th>#</th>
                             <th>Serveur</th>
-                            <th>Prix</th>
+                            <th>Prix Min (3j)</th>
                             <th>Ventes (3j)</th>
                             <th>Score</th>
                         </tr>
@@ -28,7 +28,7 @@ export function BestServersTable({ bestServers, styles }) {
                                     {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
                                 </td>
                                 <td>{server.realm_name}</td>
-                                <td><PriceDisplay value={server.min_price} /></td>
+                                <td><PriceDisplay value={server.min_price_3d ?? server.min_price} /></td>
                                 <td>
                                     {server.sales_3d ?? 'N/A'}
                                 </td>

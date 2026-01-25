@@ -18,8 +18,8 @@ export function RealmPriceTable({ realmPrices, styles }) {
                     <thead>
                         <tr>
                             <th>Serveur</th>
-                            <th>Prix Min</th>
-                            <th>Prix Moy</th>
+                            <th>Prix Min (3j)</th>
+                            <th>Prix Actuel</th>
                             <th>Quantité</th>
                             <th>Maj</th>
                         </tr>
@@ -37,8 +37,8 @@ export function RealmPriceTable({ realmPrices, styles }) {
                                     )}
                                     {price.realm_name}
                                 </td>
+                                <td><PriceDisplay value={price.min_price_3d ?? price.min_price} /></td>
                                 <td><PriceDisplay value={price.min_price} /></td>
-                                <td><PriceDisplay value={price.avg_price} /></td>
                                 <td>{price.total_quantity ?? 'N/A'}</td>
                                 <td className="text-muted">{formatTimeDiff(price.recorded_at)}</td>
                             </tr>
@@ -62,10 +62,13 @@ export function RealmPriceTable({ realmPrices, styles }) {
                                 )}
                                 <span className="realm-name">{price.realm_name}</span>
                             </div>
-                            <PriceDisplay value={price.min_price} />
+                            <div className="flex flex-col items-end">
+                                <span className="text-xs text-muted">3j:</span>
+                                <PriceDisplay value={price.min_price_3d ?? price.min_price} />
+                            </div>
                         </div>
                         <div className={styles.mobileListRow}>
-                            <span className="text-muted">Moy: <PriceDisplay value={price.avg_price} /></span>
+                            <span className="text-muted">Actuel: <PriceDisplay value={price.min_price} /></span>
                             <span className="text-muted">Qté: {price.total_quantity ?? 'N/A'}</span>
                         </div>
                     </div>

@@ -159,6 +159,7 @@ async def get_item_detail(item_id: int, realm_id: int = Query(...)):
         "avg_price": current_price.get("avg_price") if current_price else None,
         "trend": trend,
         "sales_3d": dm.get_estimated_sales_3d(item_id, realm_id),
+        "min_price_3d": dm.get_min_price_3d(item_id, realm_id),
         "volume_change": volume_change,
         "price_history": [
             {
