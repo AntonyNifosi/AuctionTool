@@ -17,6 +17,49 @@ function ItemDetailModal({ item, realmId, onClose }) {
         chartData
     } = useItemDetail(item, realmId)
 
+    const [timeRange, setTimeRange] = useState('3d')
+
+    // Filter chart data based on time range
+    const getFilteredChartData = () => {
+        if (timeRange === 'all') return chartData
+
+        const now = Date.now()
+        const ranges = {
+            '24h': 24 * 60 * 60 * 1000,
+            '3d': 3 * 24 * 60 * 60 * 1000,
+            '7d': 7 * 24 * 60 * 60 * 1000
+        }
+
+        const cutoff = now - (ranges[timeRange] || 0)
+        return chartData.filter(d => d.timestamp >= cutoff)
+    }
+
+    const filteredData = getFilteredChartData()
+
+    const TimeRangeControls = () => (
+        <div className={styles.timeControls} style={{ marginBottom: '1rem', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            {['24h', '3d', '7d', 'all'].map(range => (
+                <button
+                    key={range}
+                    className={`btn btn-sm ${timeRange === range ? 'btn-primary' : 'btn-outline'}`}
+                    onClick={() => setTimeRange(range)}
+                    style={{
+                        opacity: timeRange === range ? 1 : 0.8,
+                        border: timeRange === range ? '1px solid var(--primary)' : '1px solid rgba(255,255,255,0.3)',
+                        background: timeRange === range ? 'var(--primary)' : 'rgba(255,255,255,0.05)',
+                        color: '#fff',
+                        padding: '4px 12px',
+                        cursor: 'pointer',
+                        borderRadius: '4px',
+                        transition: 'all 0.2s'
+                    }}
+                >
+                    {range === 'all' ? 'Max' : range}
+                </button>
+            ))}
+        </div>
+    )
+
     if (!item) return null
 
     const tabs = [
@@ -91,16 +134,22 @@ function ItemDetailModal({ item, realmId, onClose }) {
                             {/* Historique Prix */}
                             {activeTab === 'history' && (
                                 <div className={styles.tabContent}>
-                                    <h3>📈 Historique des prix (21 jours)</h3>
-                                    <PriceChart data={chartData} styles={styles} />
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <h3>📈 Historique des prix</h3>
+                                        <TimeRangeControls />
+                                    </div>
+                                    <PriceChart data={filteredData} styles={styles} />
                                 </div>
                             )}
 
                             {/* Volume */}
                             {activeTab === 'volume' && (
                                 <div className={styles.tabContent}>
-                                    <h3>📦 Évolution du volume</h3>
-                                    <VolumeChart data={chartData} styles={styles} />
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <h3>📦 Évolution du volume</h3>
+                                        <TimeRangeControls />
+                                    </div>
+                                    <VolumeChart data={filteredData} styles={styles} />
                                 </div>
                             )}
 
