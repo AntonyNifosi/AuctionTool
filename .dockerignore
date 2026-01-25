@@ -25,6 +25,8 @@ yarn-error.log*
 housing_data.db
 housing_data_old.db
 *.sqlite3
+**/*.db
+backend/data/*.db
 
 # IDE
 .vscode

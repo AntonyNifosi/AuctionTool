@@ -7,7 +7,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./housing_data.db:/app/housing_data.db
+      - ./backend/data:/app/backend/data
     env_file:
       - .env
     restart: always
