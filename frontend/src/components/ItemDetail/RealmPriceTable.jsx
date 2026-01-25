@@ -51,7 +51,7 @@ export function RealmPriceTable({ realmPrices, styles }) {
             <div className={styles.mobileModalGrid}>
                 {sortedPrices.map((price) => (
                     <div className={styles.mobileListItem} key={price.realm_id}>
-                        <div className={styles.mobileListHeader}>
+                        <div className={styles.mobileListHeader} style={{ gap: '16px' }}>
                             <div className={styles.realmInfo}>
                                 {price.region && (
                                     <img
@@ -62,9 +62,11 @@ export function RealmPriceTable({ realmPrices, styles }) {
                                 )}
                                 <span className="realm-name">{price.realm_name}</span>
                             </div>
-                            <div className="flex flex-col items-end">
-                                <span className="text-xs text-muted">3j:</span>
-                                <PriceDisplay value={price.min_price_3d ?? price.min_price} />
+                            <div className="flex flex-col items-end" style={{ minWidth: 'fit-content' }}>
+                                <span className="text-xs text-muted" style={{ marginBottom: '4px' }}>Prix min / 3j:</span>
+                                <div style={{ marginTop: '0px' }}>
+                                    <PriceDisplay value={price.min_price_3d ?? price.min_price} />
+                                </div>
                             </div>
                         </div>
                         <div className={styles.mobileListRow}>

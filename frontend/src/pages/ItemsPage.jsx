@@ -169,8 +169,7 @@ function ItemsPage() {
 
                                     <div className="mobile-card-meta">
                                         <span className="badge">{item.category}</span>
-                                        <span>Ventes: {item.sales_3d ?? 0}/3j</span>
-                                        <span>Ventes: {item.sales_3d ?? 0}/3j</span>
+                                        <span>Ventes 3j : {item.sales_3d ?? 0}</span>
                                     </div>
 
                                     <div className="mobile-card-footer">
