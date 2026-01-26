@@ -651,8 +651,25 @@ class UpdateManager:
             print(f"Error saving snapshot for realm {realm_id}: {e}")
             
         # 4. Détecter les disparitions (Old mais pas New)
-        item_sales = {}
-        pet_sales = {}
+        raw_item_sales = {}
+        raw_pet_sales = {}
+        
+        # Détecter les apparitions (New mais pas Old)
+        item_new_listings = {}
+        pet_new_listings = {}
+        
+        # Helper pour compter les apparitions
+        for auc_id in current_ids:
+            if auc_id not in old_auctions:
+                # C'est un nouvel item !
+                data = new_snapshot[auc_id]
+                item_id = data.get("i")
+                if item_id:
+                    item_new_listings[item_id] = item_new_listings.get(item_id, 0) + 1
+                    
+                pet_id = data.get("p")
+                if pet_id:
+                    pet_new_listings[pet_id] = pet_new_listings.get(pet_id, 0) + 1
         
         # Si pas d'ancien snapshot, on ne peut pas deviner les ventes
         if not old_auctions:
@@ -663,16 +680,34 @@ class UpdateManager:
                 # Disparu !
                 time_left = data.get("t")
                 
-                # Si time_left n'était Pas SHORT (< 30min), on considère vendu
+                # Si time_left n'était Pas SHORT (< 30min), on considère vendu (potentiellement)
                 if time_left != "SHORT":
                     # Item Sale
                     item_id = data.get("i")
                     if item_id:
-                        item_sales[item_id] = item_sales.get(item_id, 0) + 1
+                        raw_item_sales[item_id] = raw_item_sales.get(item_id, 0) + 1
                         
                     # Pet Sale
                     pet_id = data.get("p")
                     if pet_id:
-                        pet_sales[pet_id] = pet_sales.get(pet_id, 0) + 1
+                        raw_pet_sales[pet_id] = raw_pet_sales.get(pet_id, 0) + 1
+        
+        # 5. Ajuster les ventes avec le "Churn" (Cancel/Relist)
+        # Sales Réelles = Max(0, Disparus - Nouveaux)
+        # Si 5 items disparaissent et 5 items apparaissent, on suppose 0 vente (juste du relisting)
+        
+        final_item_sales = {}
+        for item_id, count in raw_item_sales.items():
+             new_count = item_new_listings.get(item_id, 0)
+             adjusted_sales = max(0, count - new_count)
+             if adjusted_sales > 0:
+                 final_item_sales[item_id] = adjusted_sales
+                 
+        final_pet_sales = {}
+        for pet_id, count in raw_pet_sales.items():
+            new_count = pet_new_listings.get(pet_id, 0)
+            adjusted_sales = max(0, count - new_count)
+            if adjusted_sales > 0:
+                final_pet_sales[pet_id] = adjusted_sales
                         
-        return item_sales, pet_sales
+        return final_item_sales, final_pet_sales
