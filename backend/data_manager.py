@@ -704,7 +704,7 @@ class DataManager:
         cursor.execute("""
             SELECT MIN(min_price) as min_price_3d
             FROM price_history
-            WHERE item_id = ? AND realm_id = ? AND recorded_at >= ?
+            WHERE item_id = ? AND realm_id = ? AND recorded_at >= ? AND min_price > 0
         """, (item_id, realm_id, date_3d))
         
         row = cursor.fetchone()
