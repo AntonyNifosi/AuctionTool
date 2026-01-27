@@ -192,7 +192,8 @@ async def get_item_prices_by_realm(item_id: int):
                 "min_price": p["min_price"],
                 "avg_price": p["avg_price"],
                 "total_quantity": p["total_quantity"],
-                "recorded_at": str(p["recorded_at"]) if p.get("recorded_at") else None
+                "recorded_at": str(p["recorded_at"]) if p.get("recorded_at") else None,
+                "sales_3d": p.get("sales_3d", 0)
             }
             for p in prices
         ]
