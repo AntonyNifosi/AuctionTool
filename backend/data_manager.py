@@ -549,8 +549,6 @@ class DataManager:
             return [], 0
             
         # 3. Main Query with filtering
-        # Note: We filter housing_items FIRST, then join history only for matching items
-        
         query = f"""
         WITH filtered_items AS (
             SELECT item_id, name, icon_url, category
@@ -626,15 +624,6 @@ class DataManager:
         LEFT JOIN recipes r ON fi.item_id = r.crafted_item_id
         ORDER BY fi.name
         """
-        
-        # Params for main query:
-        # 1. LIMIT (for filtered_items)
-        # 2. OFFSET (for filtered_items)
-        # 3. realm_id (latest)
-        # 4. realm_id (sales)
-        # 5. realm_id (min_price)
-        # 6. realm_id (historical)
-        # 7. realm_id (week_start)
         
         limit_val = limit if limit is not None else 1000000
         query_params = params + [limit_val, offset, realm_id, realm_id, realm_id, realm_id, realm_id]

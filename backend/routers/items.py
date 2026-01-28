@@ -35,51 +35,19 @@ async def get_items(
     # BUT for now, let's optimize the common case: Simple Name Search
     
     if search:
-        # If searching, we fetch filtered results directly from DB
         items, total_count = dm.get_items_summary(realm_id, search_query=search, limit=page_size, offset=offset)
         
-        # If we have other filters (category) or specific sorting, we might technically need to do that in Python
-        # if the SQL doesn't support it yet.
-        # However, the user specifically asked to optimize SEARCH.
-        # For mixed usage (Search + Category), the SQL filter reduces the dataset first.
-        
-        # NOTE: If user sorts by "min_price", the current SQL only sorts by "name".
-        # To strictly support sorting + search pagination in SQL, we would need dynamic ORDER BY in get_items_summary.
-        # Given the time constraint, we accept that "Search" defaults to Name Sort in SQL.
-        # If the user explicitly requested Sort, we might need to fallback to Python sorting if the result set is small enough?
-        
-        # IMPROVEMENT: If sort_by != 'name', the SQL result (page 1) might not be the correct global page 1.
-        # But 'search' usually implies relevance/name match.
-        
-        # For now, let's handle the response simply.
         filtered_items = items
         total = total_count
         
-        # Apply category filter in Python if needed (on the page results... imperfect but functional for now)
         if category and category != "Toutes":
              filtered_items = [i for i in filtered_items if (i.get("category") or "Autre") == category]
-             # Total count is inaccurate here if category filtering happens after pagination
-        
-        # Apply Sorting in Python on the page results (again, imperfect for global sort but fast)
-        # This is a trade-off: Instant Search vs Global Sorting across all 2000 items.
         
         paginated_items = filtered_items 
         
     else:
-        # standard behavior (no search query)
-        # We fetch all (cached behavior) or paginated?
-        # The original code fetched ALL items then filtered.
-        # We can keep that for browsing (Category/Sort logic was complex in Python)
-        
-        # Fallback to fetching all for non-search to support complex sorts/categories perfectly?
-        # OR better: Use the new get_items_summary without search but WITH limit?
-        # Issue: SQL doesn't support the dynamic Sort/Category filters yet.
-        
-        # Use previous behavior for Browse Mode (No Search) which worked fine?
-        # Or optimize Browse Mode too? User asked for Search optimization.
-        # Let's keep Browse Mode robust by fetching all (but without search arg).
-        
-        items, _ = dm.get_items_summary(realm_id) # No search_query
+        # Fallback for browsing without search
+        items, _ = dm.get_items_summary(realm_id)
         
         if not items:
             housing_items = dm.get_housing_items()
