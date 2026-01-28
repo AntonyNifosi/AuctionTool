@@ -30,85 +30,20 @@ async def get_items(
     # Calculate offset
     offset = (page - 1) * page_size
     
-    # Search is now handled in SQL
-    # If category or sort is used, we still might need to fetch more and filter in Python
-    # BUT for now, let's optimize the common case: Simple Name Search
-    
-    if search:
-        items, total_count = dm.get_items_summary(realm_id, search_query=search, limit=page_size, offset=offset)
-        
-        filtered_items = items
-        total = total_count
-        
-        if category and category != "Toutes":
-             filtered_items = [i for i in filtered_items if (i.get("category") or "Autre") == category]
-        
-        paginated_items = filtered_items 
-        
-    else:
-        # Fallback for browsing without search
-        items, _ = dm.get_items_summary(realm_id)
-        
-        if not items:
-            housing_items = dm.get_housing_items()
-            items = [
-                {
-                    "item_id": item["item_id"],
-                    "name": item["name"], # ... filled with None ...
-                    # Reconstructing empty items logic skipped for brevity, assuming dm returns something or empty list
-                    # If dm.get_items_summary returns [], we handle it.
-                } 
-                for item in housing_items
-            ]
-            # (Simplification: If get_items_summary returns nothing, we return empty list or basic housing items)
-            # The original code had a fallback if get_items_summary returned None/Empty.
-            
-            if not items:
-                 # Reconstruct from housing_items if price history missing
-                 items = [
-                    {"item_id": i["item_id"], "name": i["name"], "category": i.get("category")} # Simplified
-                    for i in dm.get_housing_items()
-                 ]
-
-        filtered_items = items
-        
-        # Apply Category (Python)
-        if category and category != "Toutes":
-            filtered_items = [
-                item for item in filtered_items
-                if (item.get("category") or "Autre") == category
-            ]
-        
-        # Apply Sorting (Python)
-         # Note: None values should ALWAYS be at the end (least interesting)
-        reverse = sort_order == "desc"
-        
-        def sort_with_none_at_end(items_list, key_field, rev):
-            """Sort items with None values always at the end"""
-            with_value = [i for i in items_list if i.get(key_field) is not None]
-            without_value = [i for i in items_list if i.get(key_field) is None]
-            sorted_with = sorted(with_value, key=lambda x: x.get(key_field) or 0, reverse=rev)
-            return sorted_with + without_value
-        
-        if sort_by == "min_price":
-            filtered_items = sort_with_none_at_end(filtered_items, "min_price", reverse)
-        elif sort_by == "trend":
-            filtered_items = sort_with_none_at_end(filtered_items, "trend", reverse)
-        else:  # Default: name
-            filtered_items = sorted(
-                filtered_items,
-                key=lambda x: (x.get("name") or "").lower(),
-                reverse=reverse
-            )
-            
-        total = len(filtered_items)
-        start = (page - 1) * page_size
-        end = start + page_size
-        paginated_items = filtered_items[start:end]
+    # Optimized call: Pass all filters and sorting to DataManager (SQL)
+    items, total_count = dm.get_items_summary(
+        realm_id, 
+        search_query=search, 
+        category=category,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        limit=page_size, 
+        offset=offset
+    )
 
     return ItemListResponse(
-        items=[ItemSummary(**item) for item in paginated_items],
-        total=total,
+        items=[ItemSummary(**item) for item in items],
+        total=total_count,
         page=page,
         page_size=page_size
     )

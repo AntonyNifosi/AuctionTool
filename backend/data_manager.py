@@ -18,6 +18,11 @@ class DataManager:
     
     def __init__(self, db_path: str = DATABASE_PATH):
         self.db_path = db_path
+        # Database initialization is now explicit via initialize_database()
+        # to avoid overhead on every request
+    
+    def initialize_database(self):
+        """Public alias for _init_database for startup calls"""
         self._init_database()
     
     def _get_connection(self) -> sqlite3.Connection:
@@ -198,6 +203,19 @@ class DataManager:
             cursor.execute("ALTER TABLE pet_price_history ADD COLUMN estimated_sales INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass
+            
+        # NOUVEAUX INDEXES POUR OPTIMISATION TRI ET FILTRE
+        # Housing Items
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_housing_items_name ON housing_items(name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_housing_items_category ON housing_items(category)")
+        
+        # Pets
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pets_name ON pets(name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pets_creature_type ON pets(creature_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pets_source ON pets(source)")
+        
+        # Recipes (si on trie par nom de recette ou profession)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_recipes_profession ON recipes(profession_id)")
         
         conn.commit()
         conn.close()
@@ -525,25 +543,37 @@ class DataManager:
         
         return [dict(row) for row in rows]
     
-    def get_items_summary(self, realm_id: int, search_query: str = None, limit: int = None, offset: int = 0) -> Tuple[List[Dict], int]:
+    def get_items_summary(self, realm_id: int, search_query: str = None, category: str = None, 
+                         sort_by: str = "name", sort_order: str = "asc", 
+                         limit: int = 50, offset: int = 0) -> Tuple[List[Dict], int]:
         """
         Récupère un résumé des items de housing avec leurs métriques.
-        OPTIMISÉ : Filtre la recherche directement en SQL avant de faire les calculs lourds.
+        OPTIMISÉ : Filtre, Tri et Pagination complets en SQL.
+        JOIN correct pour éviter le full scan de price_history.
         Retourne (items, total_count).
         """
         conn = self._get_connection()
         cursor = conn.cursor()
         
         # 1. Base Query Conditions
-        where_clause = "WHERE 1=1"
+        where_conditions = ["1=1"]
         params = []
         
         if search_query:
-            where_clause += " AND hi.name LIKE ?"
+            where_conditions.append("hi.name LIKE ?")
             params.append(f"%{search_query}%")
             
-        # 2. Get Total Count (for pagination)
-        count_query = f"SELECT COUNT(*) as total FROM housing_items hi {where_clause}"
+        if category and category != "Toutes":
+            if category == "Autre":
+                where_conditions.append("(hi.category IS NULL OR hi.category = 'Autre')")
+            else:
+                where_conditions.append("hi.category = ?")
+                params.append(category)
+        
+        where_clause = " AND ".join(where_conditions)
+            
+        # 2. Get Total Count (with filters applied)
+        count_query = f"SELECT COUNT(*) as total FROM housing_items hi WHERE {where_clause}"
         cursor.execute(count_query, params)
         total_count = cursor.fetchone()["total"]
         
@@ -551,93 +581,213 @@ class DataManager:
             conn.close()
             return [], 0
             
-        # 3. Main Query with filtering
-        query = f"""
-        WITH filtered_items AS (
+        # 3. Main Query with optimization
+        
+        sort_column = "fi.name" # Use filtered_items alias
+        direction = "ASC" if sort_order == "asc" else "DESC"
+        
+        if sort_by == "min_price":
+            sort_column = "min_price"
+        elif sort_by == "sales_3d":
+            sort_column = "sales_3d"
+        elif sort_by == "trend":
+            sort_column = "trend"
+        elif sort_by == "name":
+            sort_column = "name"
+            
+        if sort_by == "name":
+             # Already primary sort, no need for secondary
+             order_clause = f"ORDER BY {sort_column} {direction}"
+        else:
+             order_clause = f"ORDER BY CASE WHEN {sort_column} IS NULL THEN 1 ELSE 0 END, {sort_column} {direction}, name ASC"
+        
+        # OPTIMIZATION STRATEGY:
+        # If sorting by NAME (default), we can LIMIT inside filtered_items CTE.
+        # This drastically reduces the number of items we need to fetch prices for (50 vs 2000).
+        # If sorting by PRICE/TREND, we MUST fetch prices for all filtered items first, THEN sort/limit.
+        
+        # NOTE: Even for Price sort, joining filtered_items is critical to avoid Full Table Scan.
+        
+        filtered_limit_clause = ""
+        final_limit_clause = "LIMIT ? OFFSET ?"
+        query_params = list(params) # Start with filter params
+        
+        if sort_by == "name":
+            # Apply Limit/Offset EARLY
+            filtered_limit_clause = "ORDER BY name LIMIT ? OFFSET ?"
+            query_params.extend([limit, offset]) # For filtered_items
+            
+            # The final limit is redundant but harmless, or we can remove it.
+            # But query expects params at the end. 
+            # Let's keep final limit large/trivial or re-use logic.
+            # Actually easier to just Apply Limit Early and Remove Limit Late?
+            # Or Apply Limit Early and Keep Limit Late (it will just limit 50 items to 50).
+            # But offsets would double apply?
+            # Logic:
+            # If Name Sort: filtered_items has LIMIT 50 OFFSET 0.
+            # Then we join prices for 50 items.
+            # Then we SELECT * ... ORDER BY name LIMIT 50 OFFSET 0? NO! 
+            # If we offset twice, we lose data.
+            # If Name Sort: filtered_items LIMIT X OFFSET Y.
+            # Final Query: LIMIT X OFFSET 0 (since we already offsetted).
+            
+            final_limit_clause = "LIMIT ? OFFSET 0" 
+            query_params.extend([limit]) # For final query limit only
+            
+             # And we need realm_ids in between
+            
+        else:
+             # Price Sort: No Limit in CTE.
+             # Final Query has LIMIT X OFFSET Y.
+             query_params.extend([realm_id, realm_id, realm_id, realm_id, realm_id]) # CTE Params
+             query_params.extend([limit, offset]) # Final Params (Limit, Offset)
+        
+        # Wait, the logic for params insertion handles realm_id insertion.
+        # Let's structure carefully.
+        
+        # Re-structure params construction
+        sql_filtered_items = f"""
             SELECT item_id, name, icon_url, category
             FROM housing_items hi
-            {where_clause}
-            ORDER BY name
-            LIMIT ? OFFSET ?
+            WHERE {where_clause}
+        """
+        
+        param_list = list(params) # Filter params
+        
+        if sort_by == "name":
+            sql_filtered_items += f" ORDER BY name {direction} LIMIT ? OFFSET ?"
+            param_list.extend([limit, offset])
+            
+        # Common CTEs with JOINs
+        # IMPORTANT: Join with filtered_items (fi) prevents Full Table Scan
+        
+        # Optimization: Use MAX(recorded_at) instead of Window Function ROW_NUMBER()
+        # This allows SQLite to use the (item_id, realm_id, recorded_at) index for instant lookups
+        # regardless of history size.
+        
+        query = f"""
+        WITH filtered_items AS (
+            {sql_filtered_items}
+        ),
+        latest_prices_lookup AS (
+            SELECT fi.item_id, MAX(ph.recorded_at) as max_date
+            FROM filtered_items fi
+            JOIN price_history ph ON fi.item_id = ph.item_id
+            WHERE ph.realm_id = ?
+            GROUP BY fi.item_id
         ),
         latest_prices AS (
             SELECT 
-                ph.item_id, ph.min_price, ph.avg_price, ph.total_quantity, ph.auction_count, ph.recorded_at,
-                ROW_NUMBER() OVER (PARTITION BY ph.item_id ORDER BY ph.recorded_at DESC) as rn
-            FROM price_history ph
-            JOIN filtered_items fi ON ph.item_id = fi.item_id
-            WHERE ph.realm_id = ?
+                ph.item_id, ph.min_price, ph.avg_price, ph.total_quantity, ph.auction_count, ph.recorded_at
+            FROM latest_prices_lookup lpl
+            JOIN price_history ph 
+                 ON lpl.item_id = ph.item_id 
+                 AND lpl.max_date = ph.recorded_at
+                 AND ph.realm_id = ?
         ),
         sales_3days AS (
             SELECT 
-                ph.item_id,
+                fi.item_id,
                 SUM(ph.estimated_sales) as sales_3d
-            FROM price_history ph
-            JOIN filtered_items fi ON ph.item_id = fi.item_id
+            FROM filtered_items fi
+            JOIN price_history ph ON fi.item_id = ph.item_id
             WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-3 days')
-            GROUP BY ph.item_id
+            GROUP BY fi.item_id
         ),
         min_price_3days AS (
             SELECT 
-                ph.item_id,
+                fi.item_id,
                 MIN(ph.min_price) as real_min_price
-            FROM price_history ph
-            JOIN filtered_items fi ON ph.item_id = fi.item_id
+            FROM filtered_items fi
+            JOIN price_history ph ON fi.item_id = ph.item_id
             WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-3 days') AND ph.min_price > 0
-            GROUP BY ph.item_id
+            GROUP BY fi.item_id
         ),
         historical_stats AS (
             SELECT 
-                ph.item_id,
+                fi.item_id,
                 AVG(ph.avg_price) as hist_avg_price
-            FROM price_history ph
-            JOIN filtered_items fi ON ph.item_id = fi.item_id
+            FROM filtered_items fi
+            JOIN price_history ph ON fi.item_id = ph.item_id
             WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-21 days')
-            GROUP BY ph.item_id
+            GROUP BY fi.item_id
+        ),
+        week_start_lookup AS (
+             SELECT fi.item_id, MIN(ph.recorded_at) as min_date
+             FROM filtered_items fi
+             JOIN price_history ph ON fi.item_id = ph.item_id
+             WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-7 days')
+             GROUP BY fi.item_id
         ),
         week_start_volume AS (
             SELECT 
-                ph.item_id, ph.total_quantity as start_quantity,
-                ROW_NUMBER() OVER (PARTITION BY ph.item_id ORDER BY ph.recorded_at ASC) as rn
-            FROM price_history ph
-            JOIN filtered_items fi ON ph.item_id = fi.item_id
-            WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-7 days')
+                ph.item_id, ph.total_quantity as start_quantity
+            FROM week_start_lookup wsl
+            JOIN price_history ph 
+                ON wsl.item_id = ph.item_id 
+                AND wsl.min_date = ph.recorded_at
+                AND ph.realm_id = ?
+        ),
+        final_data AS (
+            SELECT 
+                fi.item_id,
+                fi.name,
+                fi.icon_url,
+                fi.category,
+                COALESCE(mp3.real_min_price, lp.min_price) as min_price,
+                lp.avg_price,
+                lp.total_quantity,
+                lp.auction_count,
+                lp.recorded_at,
+                hs.hist_avg_price,
+                wsv.start_quantity,
+                COALESCE(s3.sales_3d, 0) as sales_3d,
+                r.recipe_id,
+                r.profession_name,
+                CASE 
+                    WHEN lp.avg_price IS NOT NULL AND hs.hist_avg_price IS NOT NULL AND hs.hist_avg_price > 0 
+                    THEN ROUND(((lp.avg_price - hs.hist_avg_price) / hs.hist_avg_price) * 100, 1)
+                    ELSE NULL 
+                END as trend
+            FROM filtered_items fi
+            LEFT JOIN latest_prices lp ON fi.item_id = lp.item_id
+            LEFT JOIN sales_3days s3 ON fi.item_id = s3.item_id
+            LEFT JOIN min_price_3days mp3 ON fi.item_id = mp3.item_id
+            LEFT JOIN historical_stats hs ON fi.item_id = hs.item_id
+            LEFT JOIN week_start_volume wsv ON fi.item_id = wsv.item_id
+            LEFT JOIN recipes r ON fi.item_id = r.crafted_item_id
         )
-        SELECT 
-            fi.item_id,
-            fi.name,
-            fi.icon_url,
-            fi.category,
-            COALESCE(mp3.real_min_price, lp.min_price) as min_price,
-            lp.avg_price,
-            lp.total_quantity,
-            lp.auction_count,
-            lp.recorded_at,
-            hs.hist_avg_price,
-            wsv.start_quantity,
-            COALESCE(s3.sales_3d, 0) as sales_3d,
-            r.recipe_id,
-            r.profession_name
-        FROM filtered_items fi
-        LEFT JOIN latest_prices lp ON fi.item_id = lp.item_id AND lp.rn = 1
-        LEFT JOIN sales_3days s3 ON fi.item_id = s3.item_id
-        LEFT JOIN min_price_3days mp3 ON fi.item_id = mp3.item_id
-        LEFT JOIN historical_stats hs ON fi.item_id = hs.item_id
-        LEFT JOIN week_start_volume wsv ON fi.item_id = wsv.item_id AND wsv.rn = 1
-        LEFT JOIN recipes r ON fi.item_id = r.crafted_item_id
-        ORDER BY fi.name
+        SELECT * FROM final_data
+        {order_clause}
         """
         
-        limit_val = limit if limit is not None else 1000000
-        query_params = params + [limit_val, offset, realm_id, realm_id, realm_id, realm_id, realm_id]
+        # Add Realm IDs to params
+        # Add Realm IDs to params.
+        # CTEs Order: latest_prices_lookup (1), latest_prices (1), sales_3days (1), min_price_3days (1), historical_stats (1), week_start_lookup (1), week_start_volume (1)
+        # Total 7 realm_id params needed
+        param_list.extend([realm_id, realm_id, realm_id, realm_id, realm_id, realm_id, realm_id])
         
-        cursor.execute(query, query_params)
+        if sort_by == "name":
+            # Already offsetted in CTE, just limit final result to be safe/consistent (offset 0)
+            # We strictly don't need limit here if CTE limit is exact, but safety good.
+             query += " LIMIT ?" 
+             param_list.append(limit)
+        else:
+            # Need full limit offset
+            query += " LIMIT ? OFFSET ?"
+            param_list.extend([limit, offset])
+        
+        cursor.execute(query, param_list)
         rows = cursor.fetchall()
         conn.close()
         
-        # Pré-calculer tous les craft costs en une seule passe (optimisation possible: filtrer par items aussi)
-        # Pour l'instant on garde le calcul global car c'est rapide (dictionnaire en mémoire)
-        craft_costs = self._batch_calculate_craft_costs(realm_id)
+        # Batch Calculate Craft Costs
+        # Optimization: Only calculate for the item_ids we actually retrieved
+        retrieved_ids = [row["item_id"] for row in rows]
+        if retrieved_ids:
+            craft_costs = self._batch_calculate_craft_costs(realm_id, retrieved_ids)
+        else:
+            craft_costs = {}
         
         items = []
         for row in rows:
@@ -652,18 +802,11 @@ class DataManager:
                 "auction_count": row["auction_count"],
                 "recorded_at": row["recorded_at"],
                 "sales_3d": row["sales_3d"],
-                "trend": None,
+                "trend": row["trend"], 
                 "volume_change": None,
                 "profession_name": row["profession_name"],
                 "craft_cost": craft_costs.get(row["item_id"]),
             }
-            
-            # Calcul Trend (en Python car plus simple pour les arrondis/nulls)
-            current_avg = row["avg_price"]
-            hist_avg = row["hist_avg_price"]
-            
-            if current_avg and hist_avg and hist_avg > 0:
-                item["trend"] = round(((current_avg - hist_avg) / hist_avg) * 100, 1)
             
             # Calcul Volume Change
             current_qty = row["total_quantity"]
@@ -999,7 +1142,7 @@ class DataManager:
         
         return {row[0] for row in rows if row[0]}
     
-    def _batch_calculate_craft_costs(self, realm_id: int, item_ids: List[int] = None) -> Dict[int, int]:
+    def _batch_calculate_craft_costs(self, realm_id: int, item_ids: List[int] = None) -> Dict[int, float]:
         """
         Calcule tous les craft costs en une seule passe pour la performance.
         Si item_ids est fourni, ne calcule que pour ces items.
@@ -1010,7 +1153,8 @@ class DataManager:
         
         # 1. Récupérer toutes les recettes et leurs réactifs
         if item_ids:
-            placeholders = ",".join("?" * len(item_ids))
+            # SQLite safe way to do IN clause with variable number of params
+            placeholders = ','.join(['?'] * len(item_ids))
             cursor.execute(f"""
                 SELECT r.crafted_item_id, rr.reagent_item_id, rr.quantity
                 FROM recipes r
@@ -1044,34 +1188,33 @@ class DataManager:
         
         if item_ids and len(reagent_ids) < 1000: # Seuil arbitraire pour passer en filtre
              query = f"""
-                SELECT item_id, realm_id, min_price
-                FROM price_history
-                WHERE realm_id IN (?, 0)
-                AND item_id IN ({placeholders_reagents})
-                AND (item_id, realm_id, recorded_at) IN (
-                    SELECT item_id, realm_id, MAX(recorded_at)
+                WITH LatestPrices AS (
+                    SELECT item_id, realm_id, min_price,
+                           ROW_NUMBER() OVER (PARTITION BY item_id, realm_id ORDER BY recorded_at DESC) as rn
                     FROM price_history
                     WHERE realm_id IN (?, 0)
                     AND item_id IN ({placeholders_reagents})
-                    GROUP BY item_id, realm_id
                 )
+                SELECT item_id, realm_id, min_price
+                FROM LatestPrices
+                WHERE rn = 1
             """
-             # Params: realm_id, *reagent_ids, realm_id, *reagent_ids
-             params = [realm_id] + list(reagent_ids) + [realm_id] + list(reagent_ids)
+             # Params: realm_id, *reagent_ids
+             params = [realm_id] + list(reagent_ids)
              cursor.execute(query, params)
         else:
             # Fallback ou global scan
             cursor.execute("""
-                SELECT item_id, realm_id, min_price
-                FROM price_history
-                WHERE realm_id IN (?, 0)
-                AND (item_id, realm_id, recorded_at) IN (
-                    SELECT item_id, realm_id, MAX(recorded_at)
+                WITH LatestPrices AS (
+                    SELECT item_id, realm_id, min_price,
+                           ROW_NUMBER() OVER (PARTITION BY item_id, realm_id ORDER BY recorded_at DESC) as rn
                     FROM price_history
                     WHERE realm_id IN (?, 0)
-                    GROUP BY item_id, realm_id
                 )
-            """, (realm_id, realm_id))
+                SELECT item_id, realm_id, min_price
+                FROM LatestPrices
+                WHERE rn = 1
+            """, (realm_id,))
             
         price_rows = cursor.fetchall()
         conn.close()
@@ -1531,41 +1674,141 @@ class DataManager:
         finally:
             conn.close()
 
-    def get_pets_summary(self, realm_id: int) -> List[Dict]:
-        """Récupère un résumé de tous les pets avec leurs prix pour un serveur"""
+    def get_pets_summary(self, realm_id: int, search_query: str = None, 
+                        source_filter: List[str] = None, creature_type: str = None, tradable_only: bool = False,
+                        sort_by: str = "min_price", sort_order: str = "desc",
+                        limit: int = 50, offset: int = 0) -> Tuple[List[Dict], int]:
+        """
+        Récupère un résumé des pets avec filtres, tri et pagination SQL.
+        OPTIMISÉ : Join correct pour éviter le full scan.
+        Retourne (items, total_count).
+        """
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # Récupérer les derniers prix pour chaque pet sur ce serveur
-        # COALESCE is_tradable to 1 (true) if NULL - most WoW pets are tradable
-        # Ajouter le calcul des ventes estimées sur les 3 derniers jours (sales_3d)
-        cutoff_3d = datetime.now() - timedelta(days=3)
+        # 1. Base Query Conditions
+        where_conditions = ["1=1"]
+        params = []
         
-        cursor.execute("""
-            SELECT p.pet_id, p.name, p.icon_url, p.source, p.creature_type, p.creature_id, 
-                   COALESCE(p.is_tradable, 1) as is_tradable,
-                   ph.min_price, ph.total_quantity, ph.quality_id, ph.level,
-                   (
-                       SELECT SUM(estimated_sales)
-                       FROM pet_price_history history
-                       WHERE history.pet_id = p.pet_id 
-                       AND history.realm_id = ?
-                       AND history.recorded_at >= ?
-                   ) as sales_3d
+        if search_query:
+            where_conditions.append("p.name LIKE ?")
+            params.append(f"%{search_query}%")
+            
+        if creature_type:
+            where_conditions.append("p.creature_type = ?")
+            params.append(creature_type)
+            
+        if tradable_only:
+            where_conditions.append("COALESCE(p.is_tradable, 1) = 1")
+
+        if source_filter:
+            source_conditions = []
+            for s in source_filter:
+                source_conditions.append("p.source LIKE ?")
+                params.append(f"%{s}%")
+            if source_conditions:
+                where_conditions.append(f"({' OR '.join(source_conditions)})")
+        
+        where_clause = " AND ".join(where_conditions)
+        
+        # 2. Get Total Count
+        count_query = f"SELECT COUNT(*) as total FROM pets p WHERE {where_clause}"
+        cursor.execute(count_query, params)
+        total_count = cursor.fetchone()["total"]
+        
+        if total_count == 0:
+            conn.close()
+            return [], 0
+            
+        # 3. Main Query
+        
+        direction = "ASC" if sort_order == "asc" else "DESC"
+        sort_column = "lp.min_price" # default
+        
+        if sort_by == "name":
+            sort_column = "fp.name"
+        elif sort_by == "level":
+            sort_column = "lp.level"
+        elif sort_by == "quality":
+            sort_column = "lp.quality_id"
+        else: # min_price
+            sort_column = "lp.min_price"
+            
+        if sort_by == "name":
+            sort_expression = f"{sort_column} {direction}"
+        else:
+            sort_expression = f"CASE WHEN {sort_column} IS NULL THEN 1 ELSE 0 END, {sort_column} {direction}, fp.name ASC"
+        
+        # Optimization Strategy similar to items:
+        # If sort by Name, apply limit/offset in filtered_pets CTE.
+        
+        filtered_pets_sql = f"""
+            SELECT pet_id, name, icon_url, source, creature_type, creature_id, is_tradable
             FROM pets p
-            LEFT JOIN (
-                SELECT pet_id, min_price, total_quantity, quality_id, level,
-                       ROW_NUMBER() OVER (PARTITION BY pet_id ORDER BY recorded_at DESC) as rn
-                FROM pet_price_history
-                WHERE realm_id = ?
-            ) ph ON p.pet_id = ph.pet_id AND ph.rn = 1
-            ORDER BY p.name
-        """, (realm_id, cutoff_3d, realm_id))
+            WHERE {where_clause}
+        """
         
+        query_params = list(params)
+        
+        if sort_by == "name":
+            filtered_pets_sql += f" ORDER BY name {direction} LIMIT ? OFFSET ?"
+            query_params.extend([limit, offset])
+            
+        query = f"""
+        WITH filtered_pets AS (
+            {filtered_pets_sql}
+        ),
+        latest_prices_lookup AS (
+             SELECT fp.pet_id, MAX(ph.recorded_at) as max_date
+             FROM filtered_pets fp
+             JOIN pet_price_history ph ON fp.pet_id = ph.pet_id
+             WHERE ph.realm_id = ?
+             GROUP BY fp.pet_id
+        ),
+        latest_prices AS (
+            SELECT 
+                ph.pet_id, ph.min_price, ph.total_quantity, ph.quality_id, ph.level, ph.recorded_at
+            FROM latest_prices_lookup lpl
+            JOIN pet_price_history ph 
+                ON lpl.pet_id = ph.pet_id 
+                AND lpl.max_date = ph.recorded_at
+                AND ph.realm_id = ?
+        ),
+        sales_3d AS (
+            SELECT 
+                fp.pet_id,
+                SUM(ph.estimated_sales) as sales_3d
+            FROM filtered_pets fp
+            JOIN pet_price_history ph ON fp.pet_id = ph.pet_id
+            WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-3 days')
+            GROUP BY fp.pet_id
+        )
+        SELECT 
+            fp.pet_id, fp.name, fp.icon_url, fp.source, fp.creature_type, fp.creature_id, 
+            COALESCE(fp.is_tradable, 1) as is_tradable,
+            lp.min_price, lp.total_quantity, lp.quality_id, lp.level,
+            COALESCE(s3.sales_3d, 0) as sales_3d
+        FROM filtered_pets fp
+        LEFT JOIN latest_prices lp ON fp.pet_id = lp.pet_id
+        LEFT JOIN sales_3d s3 ON fp.pet_id = s3.pet_id
+        ORDER BY {sort_expression}
+        """
+        
+        # Add realm params (3 times now)
+        query_params.extend([realm_id, realm_id, realm_id])
+        
+        if sort_by == "name":
+             query += " LIMIT ?" 
+             query_params.append(limit)
+        else:
+            query += " LIMIT ? OFFSET ?"
+            query_params.extend([limit, offset])
+        
+        cursor.execute(query, query_params)
         rows = cursor.fetchall()
         conn.close()
         
-        return [dict(row) for row in rows]
+        return [dict(row) for row in rows], total_count
 
 
     def get_pet_all_realms_prices(self, pet_id: int) -> List[Dict]:

@@ -78,6 +78,12 @@ async def lifespan(app: FastAPI):
     global _scheduler_task, _scheduler_running
     
     # Startup: Start the auto-scan scheduler only if enabled
+    # Also initialize database once here
+    from .data_manager import get_data_manager
+    dm = get_data_manager()
+    dm.initialize_database()
+    print("[Startup] Database initialized")
+    
     if AUTO_SCAN_ENABLED:
         print("[Startup] Starting auto-scan scheduler...")
         _scheduler_task = asyncio.create_task(auto_scan_scheduler())
