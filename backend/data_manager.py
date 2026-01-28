@@ -4,6 +4,7 @@ Utilise SQLite pour stocker l'historique des prix et volumes
 """
 import sqlite3
 import json
+import math
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any, Tuple
 from pathlib import Path
@@ -510,7 +511,7 @@ class DataManager:
             LEFT JOIN (
                 SELECT realm_id, MIN(min_price) as min_price_3d
                 FROM price_history
-                WHERE item_id = ? AND recorded_at >= ?
+                WHERE item_id = ? AND recorded_at >= ? AND min_price > 0
                 GROUP BY realm_id
             ) mp3 ON r.realm_id = mp3.realm_id
             ORDER BY r.name
@@ -741,7 +742,7 @@ class DataManager:
             MinPrice3Days AS (
                 SELECT realm_id, MIN(min_price) as min_price_3d
                 FROM price_history
-                WHERE item_id = ? AND recorded_at >= ?
+                WHERE item_id = ? AND recorded_at >= ? AND min_price > 0
                 GROUP BY realm_id
             )
             SELECT 
@@ -775,8 +776,9 @@ class DataManager:
         for row in rows:
             results.append(dict(row))
         
-        # Filtrer les serveurs russes et ceux sans prix
-        results = [r for r in results if r.get("min_price") and r.get("region") != "ru_RU"]
+        # Filtrer les serveurs russes et ceux sans prix (current ou historique)
+        # On garde si on a un prix actuel OU un prix historique (pour les serveurs sold-out mais valides)
+        results = [r for r in results if (r.get("min_price") or r.get("min_price_3d")) and r.get("region") != "ru_RU"]
         
         if not results:
             return []
@@ -791,19 +793,30 @@ class DataManager:
         min_sales = min(sales) if sales else 0
         
         # Calculer le score pour chaque serveur
+        # Formule "Saturation du Volume" demandée par l'user :
+        # Score = Prix * (1 - exp(-Ventes / K))
+        # K = 7 => ~95% d'efficacité à 21 ventes. (User wants 20 sales ~ max utility)
+        SATURATION_K = 7
+        
+        scores_raw = []
         for r in results:
             price = r["min_price_3d"]
             sale = r["sales_3d"]
-            pop = r.get("population") or "UNKNOWN"
             
-            # Normalisation 0-1
-            price_norm = (price - min_price) / (max_price - min_price) if max_price != min_price else 0.5
-            sales_norm = (sale - min_sales) / (max_sales - min_sales) if max_sales != min_sales else 0
-            pop_score = population_scores.get(pop, 0.5)
+            # Facteur de saturation (0 à 1)
+            saturation = 1 - math.exp(-sale / SATURATION_K)
             
-            # Score pondéré: Prix 40%, Ventes 40%, Population 20%
-            score = (price_norm * 0.4) + (sales_norm * 0.4) + (pop_score * 0.2)
-            r["score"] = round(score * 100, 1)  # En pourcentage
+            raw_score = price * saturation
+            r["raw_score"] = raw_score
+            scores_raw.append(raw_score)
+            
+        # Normalisation 0-100 pour l'affichage
+        max_score = max(scores_raw) if scores_raw else 1
+        
+        for r in results:
+            # On normalise par rapport au meilleur score trouvé
+            n_score = (r["raw_score"] / max_score) * 100 if max_score > 0 else 0
+            r["score"] = round(n_score, 1)
         
         # Trier par score décroissant
         results.sort(key=lambda x: x["score"], reverse=True)
