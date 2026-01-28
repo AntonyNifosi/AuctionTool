@@ -26,7 +26,7 @@ export function useItems(selectedRealm) {
         debounce((value) => {
             setDebouncedSearch(value)
             setPage(1)
-        }, 300),
+        }, 150),
         []
     )
 

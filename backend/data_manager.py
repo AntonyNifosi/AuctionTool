@@ -32,6 +32,9 @@ class DataManager:
         
         # Activer le mode WAL pour une meilleure performance et concurrence
         conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        conn.execute("PRAGMA cache_size = -100000;") # ~100MB cache
+        conn.execute("PRAGMA temp_store = MEMORY;")
         
         cursor = conn.cursor()
         
