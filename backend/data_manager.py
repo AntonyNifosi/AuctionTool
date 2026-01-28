@@ -522,66 +522,91 @@ class DataManager:
         
         return [dict(row) for row in rows]
     
-    def get_items_summary(self, realm_id: int) -> List[Dict]:
+    def get_items_summary(self, realm_id: int, search_query: str = None, limit: int = None, offset: int = 0) -> Tuple[List[Dict], int]:
         """
-        Récupère un résumé de tous les items de housing avec leurs métriques
-        pour un serveur donné.
-        Version optimisée : utilise une seule requête SQL au lieu de boucler.
-        Inclut les informations de métier et calcule le coût de craft.
+        Récupère un résumé des items de housing avec leurs métriques.
+        OPTIMISÉ : Filtre la recherche directement en SQL avant de faire les calculs lourds.
+        Retourne (items, total_count).
         """
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # Date il y a 7 et 21 jours pour les calculs
-        # Note: SQLite 'now' est UTC.
+        # 1. Base Query Conditions
+        where_clause = "WHERE 1=1"
+        params = []
         
-        query = """
-        WITH latest_prices AS (
-            -- Prix le plus récent (pour recorded_at)
+        if search_query:
+            where_clause += " AND hi.name LIKE ?"
+            params.append(f"%{search_query}%")
+            
+        # 2. Get Total Count (for pagination)
+        count_query = f"SELECT COUNT(*) as total FROM housing_items hi {where_clause}"
+        cursor.execute(count_query, params)
+        total_count = cursor.fetchone()["total"]
+        
+        if total_count == 0:
+            conn.close()
+            return [], 0
+            
+        # 3. Main Query with filtering
+        # Note: We filter housing_items FIRST, then join history only for matching items
+        
+        query = f"""
+        WITH filtered_items AS (
+            SELECT item_id, name, icon_url, category
+            FROM housing_items hi
+            {where_clause}
+            ORDER BY name
+            LIMIT ? OFFSET ?
+        ),
+        latest_prices AS (
             SELECT 
-                item_id, min_price, avg_price, total_quantity, auction_count, recorded_at,
-                ROW_NUMBER() OVER (PARTITION BY item_id ORDER BY recorded_at DESC) as rn
-            FROM price_history
-            WHERE realm_id = ?
+                ph.item_id, ph.min_price, ph.avg_price, ph.total_quantity, ph.auction_count, ph.recorded_at,
+                ROW_NUMBER() OVER (PARTITION BY ph.item_id ORDER BY ph.recorded_at DESC) as rn
+            FROM price_history ph
+            JOIN filtered_items fi ON ph.item_id = fi.item_id
+            WHERE ph.realm_id = ?
         ),
         sales_3days AS (
-            -- Ventes estimées (somme) sur les 3 derniers jours
             SELECT 
-                item_id,
-                SUM(estimated_sales) as sales_3d
-            FROM price_history
-            WHERE realm_id = ? AND recorded_at >= datetime('now', '-3 days')
-            GROUP BY item_id
+                ph.item_id,
+                SUM(ph.estimated_sales) as sales_3d
+            FROM price_history ph
+            JOIN filtered_items fi ON ph.item_id = fi.item_id
+            WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-3 days')
+            GROUP BY ph.item_id
         ),
         min_price_3days AS (
-            -- Prix minimum sur les 3 derniers jours (plus représentatif)
             SELECT 
-                item_id,
-                MIN(min_price) as real_min_price
-            FROM price_history
-            WHERE realm_id = ? AND recorded_at >= datetime('now', '-3 days') AND min_price > 0
-            GROUP BY item_id
+                ph.item_id,
+                MIN(ph.min_price) as real_min_price
+            FROM price_history ph
+            JOIN filtered_items fi ON ph.item_id = fi.item_id
+            WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-3 days') AND ph.min_price > 0
+            GROUP BY ph.item_id
         ),
         historical_stats AS (
             SELECT 
-                item_id,
-                AVG(avg_price) as hist_avg_price
-            FROM price_history
-            WHERE realm_id = ? AND recorded_at >= datetime('now', '-21 days')
-            GROUP BY item_id
+                ph.item_id,
+                AVG(ph.avg_price) as hist_avg_price
+            FROM price_history ph
+            JOIN filtered_items fi ON ph.item_id = fi.item_id
+            WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-21 days')
+            GROUP BY ph.item_id
         ),
         week_start_volume AS (
             SELECT 
-                item_id, total_quantity as start_quantity,
-                ROW_NUMBER() OVER (PARTITION BY item_id ORDER BY recorded_at ASC) as rn
-            FROM price_history
-            WHERE realm_id = ? AND recorded_at >= datetime('now', '-7 days')
+                ph.item_id, ph.total_quantity as start_quantity,
+                ROW_NUMBER() OVER (PARTITION BY ph.item_id ORDER BY ph.recorded_at ASC) as rn
+            FROM price_history ph
+            JOIN filtered_items fi ON ph.item_id = fi.item_id
+            WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-7 days')
         )
         SELECT 
-            hi.item_id,
-            hi.name,
-            hi.icon_url,
-            hi.category,
+            fi.item_id,
+            fi.name,
+            fi.icon_url,
+            fi.category,
             COALESCE(mp3.real_min_price, lp.min_price) as min_price,
             lp.avg_price,
             lp.total_quantity,
@@ -592,21 +617,34 @@ class DataManager:
             COALESCE(s3.sales_3d, 0) as sales_3d,
             r.recipe_id,
             r.profession_name
-        FROM housing_items hi
-        LEFT JOIN latest_prices lp ON hi.item_id = lp.item_id AND lp.rn = 1
-        LEFT JOIN sales_3days s3 ON hi.item_id = s3.item_id
-        LEFT JOIN min_price_3days mp3 ON hi.item_id = mp3.item_id
-        LEFT JOIN historical_stats hs ON hi.item_id = hs.item_id
-        LEFT JOIN week_start_volume wsv ON hi.item_id = wsv.item_id AND wsv.rn = 1
-        LEFT JOIN recipes r ON hi.item_id = r.crafted_item_id
-        ORDER BY hi.name
-    """
+        FROM filtered_items fi
+        LEFT JOIN latest_prices lp ON fi.item_id = lp.item_id AND lp.rn = 1
+        LEFT JOIN sales_3days s3 ON fi.item_id = s3.item_id
+        LEFT JOIN min_price_3days mp3 ON fi.item_id = mp3.item_id
+        LEFT JOIN historical_stats hs ON fi.item_id = hs.item_id
+        LEFT JOIN week_start_volume wsv ON fi.item_id = wsv.item_id AND wsv.rn = 1
+        LEFT JOIN recipes r ON fi.item_id = r.crafted_item_id
+        ORDER BY fi.name
+        """
         
-        cursor.execute(query, (realm_id, realm_id, realm_id, realm_id, realm_id))
+        # Params for main query:
+        # 1. LIMIT (for filtered_items)
+        # 2. OFFSET (for filtered_items)
+        # 3. realm_id (latest)
+        # 4. realm_id (sales)
+        # 5. realm_id (min_price)
+        # 6. realm_id (historical)
+        # 7. realm_id (week_start)
+        
+        limit_val = limit if limit is not None else 1000000
+        query_params = params + [limit_val, offset, realm_id, realm_id, realm_id, realm_id, realm_id]
+        
+        cursor.execute(query, query_params)
         rows = cursor.fetchall()
         conn.close()
         
-        # Pré-calculer tous les craft costs en une seule passe
+        # Pré-calculer tous les craft costs en une seule passe (optimisation possible: filtrer par items aussi)
+        # Pour l'instant on garde le calcul global car c'est rapide (dictionnaire en mémoire)
         craft_costs = self._batch_calculate_craft_costs(realm_id)
         
         items = []
@@ -644,7 +682,7 @@ class DataManager:
             
             items.append(item)
         
-        return items
+        return items, total_count
     
     def cleanup_old_data(self, days: int = 7):
         """Supprime les données de plus de X jours (défaut: 7 jours)"""
