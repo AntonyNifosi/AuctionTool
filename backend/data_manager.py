@@ -9,6 +9,17 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any, Tuple
 from pathlib import Path
 from .config import DATABASE_PATH, TREND_WEEKS
+import unicodedata
+
+def collate_ignore_accents(str1, str2):
+    """Comparaison de chaînes ignorant les accents et la casse"""
+    if str1 is None: str1 = ""
+    if str2 is None: str2 = ""
+    s1 = unicodedata.normalize('NFKD', str1).encode('ASCII', 'ignore').decode('ASCII').lower()
+    s2 = unicodedata.normalize('NFKD', str2).encode('ASCII', 'ignore').decode('ASCII').lower()
+    if s1 < s2: return -1
+    if s1 > s2: return 1
+    return 0
 
 
 class DataManager:
@@ -51,6 +62,7 @@ class DataManager:
         """Crée une connexion à la base de données"""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        conn.create_collation("noaccents", collate_ignore_accents)
         return conn
     
     def _init_database(self):
@@ -619,9 +631,9 @@ class DataManager:
             
         if sort_by == "name":
              # Already primary sort, no need for secondary
-             order_clause = f"ORDER BY {sort_column} {direction}"
+             order_clause = f"ORDER BY {sort_column} COLLATE noaccents {direction}"
         else:
-             order_clause = f"ORDER BY CASE WHEN {sort_column} IS NULL THEN 1 ELSE 0 END, {sort_column} {direction}, name ASC"
+             order_clause = f"ORDER BY CASE WHEN {sort_column} IS NULL THEN 1 ELSE 0 END, {sort_column} {direction}, name COLLATE noaccents ASC"
         
         # OPTIMIZATION STRATEGY:
         # If sorting by NAME (default), we can LIMIT inside filtered_items CTE.
@@ -636,7 +648,7 @@ class DataManager:
         
         if sort_by == "name":
             # Apply Limit/Offset EARLY
-            filtered_limit_clause = "ORDER BY name LIMIT ? OFFSET ?"
+            filtered_limit_clause = f"ORDER BY name COLLATE noaccents {direction} LIMIT ? OFFSET ?"
             query_params.extend([limit, offset]) # For filtered_items
             
             # The final limit is redundant but harmless, or we can remove it.
@@ -1757,9 +1769,9 @@ class DataManager:
             sort_column = "lp.min_price"
             
         if sort_by == "name":
-            sort_expression = f"{sort_column} {direction}"
+            sort_expression = f"{sort_column} COLLATE noaccents {direction}"
         else:
-            sort_expression = f"CASE WHEN {sort_column} IS NULL THEN 1 ELSE 0 END, {sort_column} {direction}, fp.name ASC"
+            sort_expression = f"CASE WHEN {sort_column} IS NULL THEN 1 ELSE 0 END, {sort_column} {direction}, fp.name COLLATE noaccents ASC"
         
         # Optimization Strategy similar to items:
         # If sort by Name, apply limit/offset in filtered_pets CTE.
@@ -1773,7 +1785,7 @@ class DataManager:
         query_params = list(params)
         
         if sort_by == "name":
-            filtered_pets_sql += f" ORDER BY name {direction} LIMIT ? OFFSET ?"
+            filtered_pets_sql += f" ORDER BY name COLLATE noaccents {direction} LIMIT ? OFFSET ?"
             query_params.extend([limit, offset])
             
         query = f"""
