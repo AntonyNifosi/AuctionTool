@@ -855,6 +855,10 @@ class DataManager:
             DELETE FROM price_history WHERE recorded_at < ?
         """, (cutoff,))
         
+        cursor.execute("""
+            DELETE FROM pet_price_history WHERE recorded_at < ?
+        """, (cutoff,))
+        
         conn.commit()
         conn.close()
 
