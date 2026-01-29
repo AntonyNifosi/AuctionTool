@@ -24,6 +24,28 @@ class DataManager:
     def initialize_database(self):
         """Public alias for _init_database for startup calls"""
         self._init_database()
+        self._ensure_stats_exist()
+
+    def _ensure_stats_exist(self):
+        """Checks if optimizer statistics exist for large tables, runs ANALYZE if missing."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        # Check if sqlite_stat1 exists (it might not if ANALYZE never ran)
+        cursor.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='sqlite_stat1'")
+        if cursor.fetchone()[0] == 0:
+            print("[DataManager] Optimization statistics missing. Running ANALYZE (this may take a few seconds)...")
+            cursor.execute("ANALYZE")
+            print("[DataManager] Optimization complete.")
+        else:
+            # Check if price_history is analyzed
+            cursor.execute("SELECT count(*) FROM sqlite_stat1 WHERE tbl='price_history'")
+            if cursor.fetchone()[0] == 0:
+                print("[DataManager] price_history statistics missing. Running ANALYZE...")
+                cursor.execute("ANALYZE")
+                print("[DataManager] Optimization complete.")
+        
+        conn.close()
     
     def _get_connection(self) -> sqlite3.Connection:
         """Crée une connexion à la base de données"""
