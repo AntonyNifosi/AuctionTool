@@ -3,23 +3,10 @@ Gestionnaire de données pour le stockage et le calcul des métriques
 Utilise SQLite pour stocker l'historique des prix et volumes
 """
 import sqlite3
-import json
 import math
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any, Tuple
-from pathlib import Path
 from .config import DATABASE_PATH, TREND_WEEKS
-import unicodedata
-
-def collate_ignore_accents(str1, str2):
-    """Comparaison de chaînes ignorant les accents et la casse"""
-    if str1 is None: str1 = ""
-    if str2 is None: str2 = ""
-    s1 = unicodedata.normalize('NFKD', str1).encode('ASCII', 'ignore').decode('ASCII').lower()
-    s2 = unicodedata.normalize('NFKD', str2).encode('ASCII', 'ignore').decode('ASCII').lower()
-    if s1 < s2: return -1
-    if s1 > s2: return 1
-    return 0
 
 
 class DataManager:
@@ -36,6 +23,47 @@ class DataManager:
         """Public alias for _init_database for startup calls"""
         self._init_database()
         self._ensure_stats_exist()
+        self._ensure_normalization()
+
+    def _ensure_normalization(self):
+        """Ensures name_normalized column exists and populates NULL values."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        
+        for table, id_col in [("housing_items", "item_id"), ("pets", "pet_id")]:
+            # 1. Ensure Column Exists
+            cursor.execute(f"PRAGMA table_info({table})")
+            cols = [info[1] for info in cursor.fetchall()]
+            
+            if "name_normalized" not in cols:
+                print(f"[DataManager] Adding name_normalized to {table}...")
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN name_normalized TEXT")
+                cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_name_norm ON {table}(name_normalized)")
+            
+            # 2. Populate NULLs (smart catch-up)
+            cursor.execute(f"SELECT {id_col}, name FROM {table} WHERE name_normalized IS NULL")
+            rows = cursor.fetchall()
+            
+            if rows:
+                print(f"[DataManager] Normalizing {len(rows)} new/missing items in {table}...")
+                updates = [(self._normalize_text(r["name"]), r[id_col]) for r in rows]
+                cursor.executemany(f"UPDATE {table} SET name_normalized = ? WHERE {id_col} = ?", updates)
+                conn.commit()
+                
+        conn.close()
+
+    def _normalize_text(self, text: str) -> str:
+        """Removes accents, handles ligatures, and converts to lowercase."""
+        import unicodedata
+        if not text: return ""
+        
+        # Handle specific ligatures that NFD doesn't decompose or that we want expanded
+        text = text.replace("Œ", "OE").replace("œ", "oe")
+        text = text.replace("Æ", "AE").replace("æ", "ae")
+        text = text.replace("’", "'") # Normalize curly quotes
+        
+        return ''.join(c for c in unicodedata.normalize('NFD', text)
+                      if unicodedata.category(c) != 'Mn').lower()
 
     def _ensure_stats_exist(self):
         """Checks if optimizer statistics exist for large tables, runs ANALYZE if missing."""
@@ -62,7 +90,6 @@ class DataManager:
         """Crée une connexion à la base de données"""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        conn.create_collation("noaccents", collate_ignore_accents)
         return conn
     
     def _init_database(self):
@@ -228,8 +255,8 @@ class DataManager:
         
         # Index pour accélérer les lookups pets
         cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_pet_price_realm 
-            ON pet_price_history(pet_id, realm_id)
+            CREATE INDEX IF NOT EXISTS idx_pet_price_realm_v2 
+            ON pet_price_history(pet_id, realm_id, recorded_at)
         """)
 
         # Migration: ajouter colonne estimated_sales à pet_price_history
@@ -283,10 +310,12 @@ class DataManager:
         conn = self._get_connection()
         cursor = conn.cursor()
         
+        norm_name = self._normalize_text(name)
+        
         cursor.execute("""
-            INSERT OR REPLACE INTO housing_items (item_id, name, icon_url, category, updated_at)
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-        """, (item_id, name, icon_url, category))
+            INSERT OR REPLACE INTO housing_items (item_id, name, icon_url, category, name_normalized, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (item_id, name, icon_url, category, norm_name))
         
         conn.commit()
         conn.close()
@@ -617,7 +646,7 @@ class DataManager:
             
         # 3. Main Query with optimization
         
-        sort_column = "fi.name" # Use filtered_items alias
+        sort_column = "name" # Scope is final_data, so no fi prefix
         direction = "ASC" if sort_order == "asc" else "DESC"
         
         if sort_by == "min_price":
@@ -626,62 +655,22 @@ class DataManager:
             sort_column = "sales_3d"
         elif sort_by == "trend":
             sort_column = "trend"
-        elif sort_by == "name":
-            sort_column = "name"
             
         if sort_by == "name":
-             # Already primary sort, no need for secondary
-             order_clause = f"ORDER BY {sort_column} COLLATE noaccents {direction}"
+             # Use normalized column for sorting
+             order_clause = f"ORDER BY name_normalized {direction}"
         else:
-             order_clause = f"ORDER BY CASE WHEN {sort_column} IS NULL THEN 1 ELSE 0 END, {sort_column} {direction}, name COLLATE noaccents ASC"
+             order_clause = f"ORDER BY CASE WHEN {sort_column} IS NULL THEN 1 ELSE 0 END, {sort_column} {direction}, name_normalized ASC"
         
         # OPTIMIZATION STRATEGY:
         # If sorting by NAME (default), we can LIMIT inside filtered_items CTE.
         # This drastically reduces the number of items we need to fetch prices for (50 vs 2000).
         # If sorting by PRICE/TREND, we MUST fetch prices for all filtered items first, THEN sort/limit.
-        
-        # NOTE: Even for Price sort, joining filtered_items is critical to avoid Full Table Scan.
-        
-        filtered_limit_clause = ""
-        final_limit_clause = "LIMIT ? OFFSET ?"
-        query_params = list(params) # Start with filter params
-        
-        if sort_by == "name":
-            # Apply Limit/Offset EARLY
-            filtered_limit_clause = f"ORDER BY name COLLATE noaccents {direction} LIMIT ? OFFSET ?"
-            query_params.extend([limit, offset]) # For filtered_items
-            
-            # The final limit is redundant but harmless, or we can remove it.
-            # But query expects params at the end. 
-            # Let's keep final limit large/trivial or re-use logic.
-            # Actually easier to just Apply Limit Early and Remove Limit Late?
-            # Or Apply Limit Early and Keep Limit Late (it will just limit 50 items to 50).
-            # But offsets would double apply?
-            # Logic:
-            # If Name Sort: filtered_items has LIMIT 50 OFFSET 0.
-            # Then we join prices for 50 items.
-            # Then we SELECT * ... ORDER BY name LIMIT 50 OFFSET 0? NO! 
-            # If we offset twice, we lose data.
-            # If Name Sort: filtered_items LIMIT X OFFSET Y.
-            # Final Query: LIMIT X OFFSET 0 (since we already offsetted).
-            
-            final_limit_clause = "LIMIT ? OFFSET 0" 
-            query_params.extend([limit]) # For final query limit only
-            
-             # And we need realm_ids in between
-            
-        else:
-             # Price Sort: No Limit in CTE.
-             # Final Query has LIMIT X OFFSET Y.
-             query_params.extend([realm_id, realm_id, realm_id, realm_id, realm_id]) # CTE Params
-             query_params.extend([limit, offset]) # Final Params (Limit, Offset)
-        
-        # Wait, the logic for params insertion handles realm_id insertion.
-        # Let's structure carefully.
+        # Note: Even for Price sort, joining filtered_items is critical to avoid Full Table Scan.
         
         # Re-structure params construction
         sql_filtered_items = f"""
-            SELECT item_id, name, icon_url, category
+            SELECT item_id, name, icon_url, category, name_normalized
             FROM housing_items hi
             WHERE {where_clause}
         """
@@ -689,7 +678,8 @@ class DataManager:
         param_list = list(params) # Filter params
         
         if sort_by == "name":
-            sql_filtered_items += f" ORDER BY name {direction} LIMIT ? OFFSET ?"
+            # Apply Limit/Offset EARLY
+            sql_filtered_items += f" ORDER BY name_normalized {direction} LIMIT ? OFFSET ?"
             param_list.extend([limit, offset])
             
         # Common CTEs with JOINs
@@ -766,6 +756,7 @@ class DataManager:
             SELECT 
                 fi.item_id,
                 fi.name,
+                fi.name_normalized,
                 fi.icon_url,
                 fi.category,
                 COALESCE(mp3.real_min_price, lp.min_price) as min_price,
@@ -1679,11 +1670,13 @@ class DataManager:
         conn = self._get_connection()
         cursor = conn.cursor()
         
+        norm_name = self._normalize_text(name)
+        
         cursor.execute("""
             INSERT OR REPLACE INTO pets 
-            (pet_id, name, icon_url, source, creature_type, creature_id, is_tradable)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (pet_id, name, icon_url, source, creature_type, creature_id, is_tradable))
+            (pet_id, name, icon_url, source, creature_type, creature_id, is_tradable, name_normalized)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (pet_id, name, icon_url, source, creature_type, creature_id, is_tradable, norm_name))
         
         conn.commit()
         conn.close()
@@ -1693,14 +1686,18 @@ class DataManager:
         if not pets_data:
             return
             
+        # Pre-normalize
+        for p in pets_data:
+            p["name_normalized"] = self._normalize_text(p.get("name", ""))
+            
         conn = self._get_connection()
         cursor = conn.cursor()
         
         try:
             cursor.executemany("""
                 INSERT OR REPLACE INTO pets 
-                (pet_id, name, icon_url, source, creature_type, creature_id, is_tradable)
-                VALUES (:pet_id, :name, :icon_url, :source, :creature_type, :creature_id, :is_tradable)
+                (pet_id, name, icon_url, source, creature_type, creature_id, is_tradable, name_normalized)
+                VALUES (:pet_id, :name, :icon_url, :source, :creature_type, :creature_id, :is_tradable, :name_normalized)
             """, pets_data)
             conn.commit()
         except Exception as e:
@@ -1725,8 +1722,8 @@ class DataManager:
         params = []
         
         if search_query:
-            where_conditions.append("p.name LIKE ?")
-            params.append(f"%{search_query}%")
+            where_conditions.append("p.name_normalized LIKE ?")
+            params.append(f"%{self._normalize_text(search_query)}%")
             
         if creature_type:
             where_conditions.append("p.creature_type = ?")
@@ -1769,15 +1766,15 @@ class DataManager:
             sort_column = "lp.min_price"
             
         if sort_by == "name":
-            sort_expression = f"{sort_column} COLLATE noaccents {direction}"
+            sort_expression = f"fp.name_normalized {direction}"
         else:
-            sort_expression = f"CASE WHEN {sort_column} IS NULL THEN 1 ELSE 0 END, {sort_column} {direction}, fp.name COLLATE noaccents ASC"
+            sort_expression = f"CASE WHEN {sort_column} IS NULL THEN 1 ELSE 0 END, {sort_column} {direction}, fp.name_normalized ASC"
         
         # Optimization Strategy similar to items:
         # If sort by Name, apply limit/offset in filtered_pets CTE.
         
         filtered_pets_sql = f"""
-            SELECT pet_id, name, icon_url, source, creature_type, creature_id, is_tradable
+            SELECT pet_id, name, icon_url, source, creature_type, creature_id, is_tradable, name_normalized
             FROM pets p
             WHERE {where_clause}
         """
@@ -1785,8 +1782,8 @@ class DataManager:
         query_params = list(params)
         
         if sort_by == "name":
-            filtered_pets_sql += f" ORDER BY name COLLATE noaccents {direction} LIMIT ? OFFSET ?"
-            query_params.extend([limit, offset])
+            # Just use base filtered_pets_sql
+            pass
             
         query = f"""
         WITH filtered_pets AS (
@@ -1821,7 +1818,8 @@ class DataManager:
             fp.pet_id, fp.name, fp.icon_url, fp.source, fp.creature_type, fp.creature_id, 
             COALESCE(fp.is_tradable, 1) as is_tradable,
             lp.min_price, lp.total_quantity, lp.quality_id, lp.level,
-            COALESCE(s3.sales_3d, 0) as sales_3d
+            COALESCE(s3.sales_3d, 0) as sales_3d,
+            fp.name_normalized
         FROM filtered_pets fp
         LEFT JOIN latest_prices lp ON fp.pet_id = lp.pet_id
         LEFT JOIN sales_3d s3 ON fp.pet_id = s3.pet_id
@@ -1832,8 +1830,8 @@ class DataManager:
         query_params.extend([realm_id, realm_id, realm_id])
         
         if sort_by == "name":
-             query += " LIMIT ?" 
-             query_params.append(limit)
+             query += " LIMIT ? OFFSET ?" 
+             query_params.extend([limit, offset])
         else:
             query += " LIMIT ? OFFSET ?"
             query_params.extend([limit, offset])
