@@ -1486,7 +1486,7 @@ class DataManager:
                      
                 score = min(score, 100) # Cape à 100
             else:
-                score = -1000.0 # No profit
+                score = 0 # No profit (was -1000)
             
             results.append({
                 "item_id": item_id,

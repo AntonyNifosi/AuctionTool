@@ -122,6 +122,8 @@ async def get_craft_profits(
         items = sorted(items, key=lambda x: (x.get("name") or "").lower(), reverse=reverse)
     elif sort_by == "volume":
         items = sort_with_none_at_end(items, "volume", reverse)
+    elif sort_by == "score" or sort_by == "total_score":
+        items = sort_with_none_at_end(items, "score", reverse)
     
     # Pagination
     total = len(items)
