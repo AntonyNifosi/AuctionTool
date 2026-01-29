@@ -47,8 +47,9 @@ async def get_character_collection(
         if realm_id:
             # Use get_pets_summary to get prices for this specific realm
             # This ensures consistency with the Pets page
-            summary_pets = dm.get_pets_summary(realm_id)
-            summary_map = {p["pet_id"]: p for p in summary_pets}
+            # We need ALL pets, so set a high limit
+            summary_pets_list, _ = dm.get_pets_summary(realm_id, limit=5000)
+            summary_map = {p["pet_id"]: p for p in summary_pets_list}
         
         # Build response with price data
         result_pets = []
