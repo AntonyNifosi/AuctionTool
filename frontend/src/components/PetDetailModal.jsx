@@ -200,7 +200,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                     <div className={`${styles.statsGrid} stats-grid`}>
                         <div className="stat-card">
                             <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                                <PriceDisplay value={currentRealmStats.min_price || pet.min_price} />
+                                <PriceDisplay value={currentRealmStats.min_price_3d ?? currentRealmStats.min_price ?? pet.min_price} />
                             </div>
                             <div className="stat-label">💰 Prix Minimum</div>
                         </div>

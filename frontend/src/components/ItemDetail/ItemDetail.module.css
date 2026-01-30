@@ -206,6 +206,38 @@
 }
 
 /* Score badges */
+.reagentsTableContainer {
+    overflow-x: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    margin-top: 1rem;
+}
+
+.reagentsTable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.reagentsTable th {
+    text-align: left;
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.reagentsTable td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+
+.reagentsTable tr:last-child td {
+    border-bottom: none;
+}
+
 .scoreBadge {
     display: inline-block;
     padding: 2px 8px;

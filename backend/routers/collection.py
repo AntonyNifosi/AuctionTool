@@ -75,14 +75,16 @@ async def get_character_collection(
                 if realm_id:
                     # Constant time lookup from pre-fetched map
                     summary_info = summary_map.get(species_id, {})
-                    price = summary_info.get("min_price")
+                    # Prioritize 3-day min price to avoid spikes, fallback to current
+                    price = summary_info.get("min_price_3d") or summary_info.get("min_price")
                     sales_3d = summary_info.get("sales_3d", 0)
                 else:
                     sales_3d = 0 # Cannot calculate sales without realm context
                     # Fallback to old behavior: minimum price across ALL realms (SLOW & DIFFERENT)
                     prices = dm.get_pet_all_realms_prices(species_id)
                     if prices:
-                        valid_prices = [p["min_price"] for p in prices if p.get("min_price")]
+                        # Also prefer 3d price here
+                        valid_prices = [p.get("min_price_3d") or p.get("min_price") for p in prices if p.get("min_price")]
                         if valid_prices:
                             price = min(valid_prices)
             

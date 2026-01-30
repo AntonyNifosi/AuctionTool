@@ -120,6 +120,18 @@ async def get_pet_detail(pet_id: int, realm_id: int = Query(...)):
     # Get history using pet-specific method
     price_history = dm.get_pet_price_history(pet_id, realm_id, days=21) if hasattr(dm, 'get_pet_price_history') else []
 
+    # Find price for the requested realm to return correct min_price (3d or current)
+    # This prevents the UI from "flickering" from 3d price (collection) to current price (detail api)
+    current_realm_price = None
+    for rp in realm_prices:
+        if rp["realm_id"] == realm_id:
+            # PRIORITIZE min_price_3d similar to Best Servers and Collection logic
+            current_realm_price = rp.get("min_price_3d") or rp.get("min_price")
+            break
+            
+    # Default to pet_info price if realm specific not found (fallback)
+    final_price = current_realm_price if current_realm_price is not None else pet_info.get("min_price")
+
     # Construct response matching item detail structure for frontend compatibility
     return {
         **pet_info,
@@ -127,8 +139,8 @@ async def get_pet_detail(pet_id: int, realm_id: int = Query(...)):
         "realm_prices": realm_prices,
         "price_history": price_history,
         # Add fields expected by ItemDetailModal with fail-safe defaults
-        "min_price": pet_info.get("min_price"), 
-        "avg_price": pet_info.get("min_price"), 
+        "min_price": final_price, 
+        "avg_price": final_price, 
         "volume_change": 0, 
         "trend": 0 
     }
@@ -157,8 +169,8 @@ async def get_pet_best_servers(pet_id: int, days: int = Query(7, ge=1, le=30)):
         "NEW_PLAYERS": 0.3,
     }
     
-    # Get min/max for normalization
-    prices = [s["min_price"] for s in servers]
+    # Get min/max for normalization (Use 3D price to avoid spikes)
+    prices = [s.get("min_price_3d") or s["min_price"] for s in servers]
     quantities = [s.get("total_quantity", 0) or 0 for s in servers]
     
     max_price = max(prices) if prices else 1
@@ -170,7 +182,9 @@ async def get_pet_best_servers(pet_id: int, days: int = Query(7, ge=1, le=30)):
     # Calculate score for each server
     results = []
     for s in servers:
-        price = s["min_price"]
+        # Use 3d price for scoring if available
+        price = s.get("min_price_3d") or s["min_price"]
+        current_price = s["min_price"]
         qty = s.get("total_quantity", 0) or 0
         pop = s.get("population") or "UNKNOWN"
         
@@ -189,7 +203,8 @@ async def get_pet_best_servers(pet_id: int, days: int = Query(7, ge=1, le=30)):
             "realm_name": s.get("realm_name"),
             "population": pop,
             "region": s.get("region"),
-            "min_price": price,
+            "min_price": price, # Display the used price (3d min) OR send both? Let's send 3d min as min_price for now to fix ranking expectation
+            "current_price": current_price, # Send current separately if needed
             "total_quantity": qty,
             "score": round(score * 100, 1)
         })

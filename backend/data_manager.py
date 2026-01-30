@@ -1061,15 +1061,18 @@ class DataManager:
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        # Supprimer les anciens réactifs
-        cursor.execute("DELETE FROM recipe_reagents WHERE recipe_id = ?", (recipe_id,))
-        
         # Insérer les nouveaux
         for reagent in reagents:
             cursor.execute("""
                 INSERT INTO recipe_reagents (recipe_id, reagent_item_id, reagent_name, quantity)
                 VALUES (?, ?, ?, ?)
             """, (recipe_id, reagent["item_id"], reagent.get("name"), reagent["quantity"]))
+            
+            # [NEW] Register as item to fetch icon later
+            cursor.execute("""
+                INSERT OR IGNORE INTO housing_items (item_id, name, category, updated_at)
+                VALUES (?, ?, 'Composant', CURRENT_TIMESTAMP)
+            """, (reagent["item_id"], reagent.get("name")))
         
         conn.commit()
         conn.close()
@@ -1817,21 +1820,32 @@ class DataManager:
             JOIN pet_price_history ph ON fp.pet_id = ph.pet_id
             WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-3 days')
             GROUP BY fp.pet_id
+        ),
+        min_price_3d AS (
+             SELECT 
+                fp.pet_id,
+                MIN(ph.min_price) as min_price_3d
+            FROM filtered_pets fp
+            JOIN pet_price_history ph ON fp.pet_id = ph.pet_id
+            WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-3 days')
+            GROUP BY fp.pet_id
         )
         SELECT 
             fp.pet_id, fp.name, fp.icon_url, fp.source, fp.creature_type, fp.creature_id, 
             COALESCE(fp.is_tradable, 1) as is_tradable,
             lp.min_price, lp.total_quantity, lp.quality_id, lp.level,
             COALESCE(s3.sales_3d, 0) as sales_3d,
+            COALESCE(mp3.min_price_3d, lp.min_price) as min_price_3d,
             fp.name_normalized
         FROM filtered_pets fp
         LEFT JOIN latest_prices lp ON fp.pet_id = lp.pet_id
         LEFT JOIN sales_3d s3 ON fp.pet_id = s3.pet_id
+        LEFT JOIN min_price_3d mp3 ON fp.pet_id = mp3.pet_id
         ORDER BY {sort_expression}
         """
         
-        # Add realm params (3 times now)
-        query_params.extend([realm_id, realm_id, realm_id])
+        # Add realm params (4 times now)
+        query_params.extend([realm_id, realm_id, realm_id, realm_id])
         
         if sort_by == "name":
              query += " LIMIT ? OFFSET ?" 
