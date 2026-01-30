@@ -375,7 +375,7 @@ function CollectionPage() {
             {selectedPet && (
                 <PetDetailModal
                     pet={selectedPet}
-                    realmId={selectedRealm?.id}
+                    realmId={realms.find(r => getRealmSlug(r.name) === selectedRealmSlug)?.id || selectedRealm?.id}
                     onClose={() => setSelectedPet(null)}
                 />
             )}

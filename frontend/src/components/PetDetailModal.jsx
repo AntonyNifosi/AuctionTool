@@ -202,7 +202,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                             <div className="stat-value" style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                                 <PriceDisplay value={currentRealmStats.min_price_3d ?? currentRealmStats.min_price ?? pet.min_price} />
                             </div>
-                            <div className="stat-label">💰 Prix Minimum</div>
+                            <div className="stat-label">💰 Prix Min ({currentRealmStats.realm_name || '...'})</div>
                         </div>
                         <div className="stat-card">
                             <div className="stat-value">{currentRealmStats.sales_3d ?? 'N/A'}</div>
@@ -312,7 +312,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                                 <td style={{ fontSize: '0.85rem' }}>
                                                                     {server.populationLabel || server.population || 'N/A'}
                                                                 </td>
-                                                                <td><PriceDisplay value={server.min_price} /></td>
+                                                                <td><PriceDisplay value={server.min_price_3d ?? server.min_price} /></td>
                                                                 <td>{server.sales_3d ?? '0'}</td>
                                                                 <td style={{ fontWeight: 600, color: 'var(--accent)' }}>
                                                                     {server.scorePercent}%
