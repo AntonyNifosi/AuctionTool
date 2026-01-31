@@ -79,7 +79,10 @@ export function RealmPriceTable({ realmPrices, styles }) {
                                 Quantité {getSortIndicator('total_quantity')}
                             </th>
                             <th onClick={() => requestSort('sales_3d')} style={{ cursor: 'pointer' }}>
-                                Ventes (3j) {getSortIndicator('sales_3d')}
+                                Ventes {getSortIndicator('sales_3d')}
+                            </th>
+                            <th onClick={() => requestSort('cancels_3d')} style={{ cursor: 'pointer' }}>
+                                🔄 Cancels {getSortIndicator('cancels_3d')}
                             </th>
                             <th onClick={() => requestSort('recorded_at')} style={{ cursor: 'pointer' }}>
                                 Maj {getSortIndicator('recorded_at')}
@@ -103,6 +106,7 @@ export function RealmPriceTable({ realmPrices, styles }) {
                                 <td><PriceDisplay value={price.min_price} /></td>
                                 <td>{price.total_quantity ?? 'N/A'}</td>
                                 <td>{price.sales_3d ?? 0}</td>
+                                <td style={{ color: (price.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'inherit' }}>{price.cancels_3d ?? 0}</td>
                                 <td className="text-muted">{formatTimeDiff(price.recorded_at)}</td>
                             </tr>
                         ))}
@@ -134,8 +138,8 @@ export function RealmPriceTable({ realmPrices, styles }) {
                         </div>
                         <div className={styles.mobileListRow}>
                             <span className="text-muted">Actuel: <PriceDisplay value={price.min_price} /></span>
-                            <span className="text-muted">Qté: {price.total_quantity ?? 'N/A'}</span>
-                            <span className="text-muted">Ventes (3j): {price.sales_3d ?? 0}</span>
+                            <span className="text-muted">Ventes: {price.sales_3d ?? 0}</span>
+                            <span style={{ color: (price.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'var(--text-muted)' }}>🔄 {price.cancels_3d ?? 0}</span>
                         </div>
                     </div>
                 ))}

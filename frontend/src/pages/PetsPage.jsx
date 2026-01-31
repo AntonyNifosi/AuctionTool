@@ -206,7 +206,7 @@ function PetsPage() {
                                     {pet.name}
                                 </div>
                                 <div className="mobile-card-subtitle">
-                                    {pet.creature_type || 'N/A'} • Niv {pet.level || '-'} • {pet.sales_3d ?? 0} Ventes/3j
+                                    {pet.creature_type || 'N/A'} • Niv {pet.level || '-'} • {pet.sales_3d ?? 0} Ventes • {pet.cancels_3d ?? 0} 🔄
                                 </div>
                             </div>
                         </div>
@@ -278,6 +278,7 @@ function PetsPage() {
                                 Prix (min){getSortIndicator('min_price')}
                             </th>
                             <th>Ventes (3j)</th>
+                            <th>🔄 Cancels</th>
                             <th>Échangeable</th>
                             <th style={{ width: 50 }}>Lien</th>
                         </tr>
@@ -324,6 +325,7 @@ function PetsPage() {
                                         <PriceDisplay value={pet.min_price} />
                                     </td>
                                     <td>{pet.sales_3d ?? 0}</td>
+                                    <td style={{ color: (pet.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'inherit' }}>{pet.cancels_3d ?? 0}</td>
                                     <td>
                                         {pet.is_tradable ? '✅' : '❌'}
                                     </td>

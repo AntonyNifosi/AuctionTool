@@ -123,18 +123,20 @@ class UpdateManager:
                     # Fetch auctions
                     all_auctions = api.get_auctions(realm_id)
                     
-                    # Detect sales (Auction Diff)
-                    item_sales, pet_sales = self._detect_sales(realm_id, all_auctions)
+                    # Detect sales and cancels (Auction Diff)
+                    item_sales, pet_sales, item_cancels, pet_cancels = self._detect_sales(realm_id, all_auctions)
                     if item_sales:
                         print(f"Detected sales for {len(item_sales)} items")
+                    if item_cancels:
+                        print(f"Detected cancels for {len(item_cancels)} items")
                     
                     # Process housing item auctions
-                    self._process_auctions(realm_id, all_auctions, target_item_ids, dm, item_sales)
+                    self._process_auctions(realm_id, all_auctions, target_item_ids, dm, item_sales, item_cancels)
                     
                     # Process pet auctions
                     pet_ids = dm.get_pet_ids()
                     if pet_ids:
-                        self._process_pet_auctions(realm_id, all_auctions, pet_ids, dm, pet_sales)
+                        self._process_pet_auctions(realm_id, all_auctions, pet_ids, dm, pet_sales, pet_cancels)
                     
                 except Exception as e:
                     print(f"Error scanning {realm_name}: {e}")
@@ -238,10 +240,11 @@ class UpdateManager:
                 return existing_items
             raise e
 
-    def _process_auctions(self, realm_id: int, auctions: List[Dict], target_item_ids: set, dm, item_sales: Dict[int, int] = None):
+    def _process_auctions(self, realm_id: int, auctions: List[Dict], target_item_ids: set, dm, item_sales: Dict[int, int] = None, item_cancels: Dict[int, int] = None):
         """Traite les enchères pour un serveur"""
         item_stats = {}
         item_sales = item_sales or {}
+        item_cancels = item_cancels or {}
         
         # 1. Process current auctions
         for auction in auctions:
@@ -266,15 +269,23 @@ class UpdateManager:
                 # Store sales count in stats
                 item_stats[item_id]["sales"] = sales_count
         
+        # 2.5. Add cancels data
+        for item_id, cancel_count in item_cancels.items():
+            if item_id in target_item_ids:
+                if item_id not in item_stats:
+                    item_stats[item_id] = {"prices": [], "qty": 0}
+                item_stats[item_id]["cancels"] = cancel_count
+        
         # Batch insert logic could go here, but for now loop is fine with WAL
         # Prepare batch data
         batch_data = []
         for item_id, stats in item_stats.items():
             prices = stats["prices"]
             estimated_sales = stats.get("sales", 0)
+            estimated_cancels = stats.get("cancels", 0)
             
-            # We record if we have prices OR if we have sales
-            if prices or estimated_sales > 0:
+            # We record if we have prices OR if we have sales OR cancels
+            if prices or estimated_sales > 0 or estimated_cancels > 0:
                 if prices:
                     min_price = min(prices)
                     avg_price = sum(prices) / len(prices)
@@ -292,17 +303,18 @@ class UpdateManager:
                 
                 batch_data.append((
                     item_id, realm_id, min_price, avg_price, 
-                    total_qty, auction_count, estimated_sales
+                    total_qty, auction_count, estimated_sales, estimated_cancels
                 ))
         
         # Batch insert
         if batch_data:
             dm.batch_record_price_data(batch_data)
     
-    def _process_pet_auctions(self, realm_id: int, auctions: List[Dict], pet_ids: set, dm, pet_sales: Dict[int, int] = None):
+    def _process_pet_auctions(self, realm_id: int, auctions: List[Dict], pet_ids: set, dm, pet_sales: Dict[int, int] = None, pet_cancels: Dict[int, int] = None):
         """Traite les enchères de pets pour un serveur"""
         pet_stats = {}
         pet_sales = pet_sales or {}
+        pet_cancels = pet_cancels or {}
         
         for auction in auctions:
             # Les pets ont pet_species_id DANS l'objet item, pas à la racine
@@ -331,14 +343,22 @@ class UpdateManager:
                     pet_stats[pet_id] = {"prices": [], "qty": 0, "quality": None, "level": None}
                 pet_stats[pet_id]["sales"] = sales_count
         
+        # Add cancels for pets
+        for pet_id, cancel_count in pet_cancels.items():
+            if pet_id in pet_ids:
+                if pet_id not in pet_stats:
+                    pet_stats[pet_id] = {"prices": [], "qty": 0, "quality": None, "level": None}
+                pet_stats[pet_id]["cancels"] = cancel_count
+        
         # Enregistrer les prix des pets
         # Enregistrer les prix des pets en batch
         batch_data = []
         for pet_id, stats in pet_stats.items():
             prices = stats["prices"]
             estimated_sales = stats.get("sales", 0)
+            estimated_cancels = stats.get("cancels", 0)
             
-            if prices or estimated_sales > 0:
+            if prices or estimated_sales > 0 or estimated_cancels > 0:
                 if prices:
                     min_price = min(prices)
                     avg_price = sum(prices) / len(prices)
@@ -354,7 +374,7 @@ class UpdateManager:
                 
                 batch_data.append((
                     pet_id, realm_id, min_price, avg_price,
-                    total_qty, stats["quality"], stats["level"], estimated_sales
+                    total_qty, stats["quality"], stats["level"], estimated_sales, estimated_cancels
                 ))
         
         if batch_data:
@@ -695,19 +715,28 @@ class UpdateManager:
         # 5. Ajuster les ventes avec le "Churn" (Cancel/Relist)
         # Sales Réelles = Max(0, Disparus - Nouveaux)
         # Si 5 items disparaissent et 5 items apparaissent, on suppose 0 vente (juste du relisting)
+        # NOUVEAU: Tracker les cancels = min(disparus, nouveaux) = paires cancel/relist
         
         final_item_sales = {}
+        item_cancels = {}
         for item_id, count in raw_item_sales.items():
              new_count = item_new_listings.get(item_id, 0)
              adjusted_sales = max(0, count - new_count)
+             cancel_count = min(count, new_count)  # Cancel/relist pairs
              if adjusted_sales > 0:
                  final_item_sales[item_id] = adjusted_sales
+             if cancel_count > 0:
+                 item_cancels[item_id] = cancel_count
                  
         final_pet_sales = {}
+        pet_cancels = {}
         for pet_id, count in raw_pet_sales.items():
             new_count = pet_new_listings.get(pet_id, 0)
             adjusted_sales = max(0, count - new_count)
+            cancel_count = min(count, new_count)  # Cancel/relist pairs
             if adjusted_sales > 0:
                 final_pet_sales[pet_id] = adjusted_sales
+            if cancel_count > 0:
+                pet_cancels[pet_id] = cancel_count
                         
-        return final_item_sales, final_pet_sales
+        return final_item_sales, final_pet_sales, item_cancels, pet_cancels

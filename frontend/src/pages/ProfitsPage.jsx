@@ -348,7 +348,10 @@ function ProfitsPage() {
                                 Marge{getSortIndicator('profit_margin')}
                             </th>
                             <th onClick={() => handleSort('volume')} style={{ cursor: 'pointer', textAlign: 'right' }}>
-                                Ventes (3j){getSortIndicator('volume')}
+                                Ventes{getSortIndicator('volume')}
+                            </th>
+                            <th onClick={() => handleSort('cancels_3d')} style={{ cursor: 'pointer', textAlign: 'right' }}>
+                                🔄 Cancels{getSortIndicator('cancels_3d')}
                             </th>
                             <th onClick={() => handleSort('score')} style={{ cursor: 'pointer', textAlign: 'center' }}>
                                 Score{getSortIndicator('score')}
@@ -411,6 +414,9 @@ function ProfitsPage() {
                                             </span>
                                         </td>
                                         <td>{item.volume ?? 'N/A'}</td>
+                                        <td style={{ color: (item.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'inherit' }}>
+                                            {item.cancels_3d ?? 0}
+                                        </td>
                                         <td style={{ textAlign: 'center' }}>
                                             <span className={`score-badge ${getScoreBadgeClass(item.score)}`}>
                                                 {item.score ? `${Math.round(item.score)}%` : '0%'}

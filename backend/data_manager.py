@@ -152,6 +152,12 @@ class DataManager:
             cursor.execute("ALTER TABLE price_history ADD COLUMN estimated_sales INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass
+        
+        # Migration: ajouter colonne estimated_cancels pour tracker les annulations
+        try:
+            cursor.execute("ALTER TABLE price_history ADD COLUMN estimated_cancels INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
 
         # Table pour stocker les IDs des items de housing connus
         cursor.execute("""
@@ -262,6 +268,12 @@ class DataManager:
         # Migration: ajouter colonne estimated_sales à pet_price_history
         try:
             cursor.execute("ALTER TABLE pet_price_history ADD COLUMN estimated_sales INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass
+        
+        # Migration: ajouter colonne estimated_cancels à pet_price_history
+        try:
+            cursor.execute("ALTER TABLE pet_price_history ADD COLUMN estimated_cancels INTEGER DEFAULT 0")
         except sqlite3.OperationalError:
             pass
             
@@ -425,7 +437,7 @@ class DataManager:
     def batch_record_price_data(self, price_data_list: List[Tuple]):
         """
         Enregistre un lot de données de prix
-        Format: [(item_id, realm_id, min_price, avg_price, total_quantity, auction_count, estimated_sales), ...]
+        Format: [(item_id, realm_id, min_price, avg_price, total_quantity, auction_count, estimated_sales, estimated_cancels), ...]
         """
         if not price_data_list:
             return
@@ -435,8 +447,8 @@ class DataManager:
         
         cursor.executemany("""
             INSERT INTO price_history 
-            (item_id, realm_id, min_price, avg_price, total_quantity, auction_count, estimated_sales)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            (item_id, realm_id, min_price, avg_price, total_quantity, auction_count, estimated_sales, estimated_cancels)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, price_data_list)
         
         conn.commit()
@@ -553,7 +565,7 @@ class DataManager:
         }
     
     def get_all_realms_prices(self, item_id: int) -> List[Dict]:
-        """Récupère les derniers prix d'un item sur tous les serveurs avec ventes 3j"""
+        """Récupère les derniers prix d'un item sur tous les serveurs avec ventes 3j et cancels"""
         conn = self._get_connection()
         cursor = conn.cursor()
         
@@ -572,7 +584,8 @@ class DataManager:
                 ph.auction_count,
                 ph.recorded_at,
                 COALESCE(sales.sales_3d, 0) as sales_3d,
-                COALESCE(mp3.min_price_3d, ph.min_price) as min_price_3d
+                COALESCE(mp3.min_price_3d, ph.min_price) as min_price_3d,
+                COALESCE(cancels.cancels_3d, 0) as cancels_3d
             FROM realms r
             LEFT JOIN (
                 SELECT 
@@ -598,8 +611,14 @@ class DataManager:
                 WHERE item_id = ? AND recorded_at >= ? AND min_price > 0
                 GROUP BY realm_id
             ) mp3 ON r.realm_id = mp3.realm_id
+            LEFT JOIN (
+                SELECT realm_id, SUM(COALESCE(estimated_cancels, 0)) as cancels_3d
+                FROM price_history
+                WHERE item_id = ? AND recorded_at >= ?
+                GROUP BY realm_id
+            ) cancels ON r.realm_id = cancels.realm_id
             ORDER BY r.name
-        """, (item_id, item_id, date_3d, item_id, date_3d))
+        """, (item_id, item_id, date_3d, item_id, date_3d, item_id, date_3d))
         
         rows = cursor.fetchall()
         conn.close()
@@ -718,6 +737,15 @@ class DataManager:
             WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-3 days')
             GROUP BY fi.item_id
         ),
+        cancels_3days AS (
+            SELECT 
+                fi.item_id,
+                SUM(COALESCE(ph.estimated_cancels, 0)) as cancels_3d
+            FROM filtered_items fi
+            JOIN price_history ph ON fi.item_id = ph.item_id
+            WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-3 days')
+            GROUP BY fi.item_id
+        ),
         min_price_3days AS (
             SELECT 
                 fi.item_id,
@@ -767,6 +795,7 @@ class DataManager:
                 hs.hist_avg_price,
                 wsv.start_quantity,
                 COALESCE(s3.sales_3d, 0) as sales_3d,
+                COALESCE(c3.cancels_3d, 0) as cancels_3d,
                 r.recipe_id,
                 r.profession_name,
                 CASE 
@@ -777,6 +806,7 @@ class DataManager:
             FROM filtered_items fi
             LEFT JOIN latest_prices lp ON fi.item_id = lp.item_id
             LEFT JOIN sales_3days s3 ON fi.item_id = s3.item_id
+            LEFT JOIN cancels_3days c3 ON fi.item_id = c3.item_id
             LEFT JOIN min_price_3days mp3 ON fi.item_id = mp3.item_id
             LEFT JOIN historical_stats hs ON fi.item_id = hs.item_id
             LEFT JOIN week_start_volume wsv ON fi.item_id = wsv.item_id
@@ -788,9 +818,9 @@ class DataManager:
         
         # Add Realm IDs to params
         # Add Realm IDs to params.
-        # CTEs Order: latest_prices_lookup (1), latest_prices (1), sales_3days (1), min_price_3days (1), historical_stats (1), week_start_lookup (1), week_start_volume (1)
-        # Total 7 realm_id params needed
-        param_list.extend([realm_id, realm_id, realm_id, realm_id, realm_id, realm_id, realm_id])
+        # CTEs Order: latest_prices_lookup (1), latest_prices (1), sales_3days (1), cancels_3days (1), min_price_3days (1), historical_stats (1), week_start_lookup (1), week_start_volume (1)
+        # Total 8 realm_id params needed
+        param_list.extend([realm_id, realm_id, realm_id, realm_id, realm_id, realm_id, realm_id, realm_id])
         
         if sort_by == "name":
             # Already offsetted in CTE, just limit final result to be safe/consistent (offset 0)
@@ -1390,6 +1420,20 @@ class DataManager:
         for row in cursor.fetchall():
             sales_volume[row["item_id"]] = row["sales_3d"] or 0
         
+        # Récupérer les cancels (cancels_3d)
+        query_cancels = f"""
+            SELECT item_id, SUM(COALESCE(estimated_cancels, 0)) as cancels_3d
+            FROM price_history
+            WHERE realm_id = ? AND recorded_at >= datetime('now', '-3 days')
+            {item_filter_sql}
+            GROUP BY item_id
+        """
+        cursor.execute(query_cancels, [realm_id] + item_filter_params)
+        
+        cancel_counts = {}
+        for row in cursor.fetchall():
+            cancel_counts[row["item_id"]] = row["cancels_3d"] or 0
+        
         # Récupérer le stock actuel (dernière valeur)
         # Note: Pour le stock actuel, la sous-requête MAX(recorded_at) peut être optimisée aussi
         current_stock_query = f"""
@@ -1461,6 +1505,7 @@ class DataManager:
             craft_cost = craft_costs.get(item_id, 0)
             sell_price = sell_prices.get(item_id, 0)
             volume = sales_volume.get(item_id, 0)
+            cancels = cancel_counts.get(item_id, 0)
             
             # Calculs de base
             profit = (sell_price - craft_cost) if sell_price and craft_cost else None
@@ -1499,6 +1544,7 @@ class DataManager:
                 "profit": profit,
                 "profit_margin": round(profit_margin, 1) if profit_margin else None,
                 "volume": volume,
+                "cancels_3d": cancels,
                 "score": score
             })
             
@@ -1829,6 +1875,15 @@ class DataManager:
             JOIN pet_price_history ph ON fp.pet_id = ph.pet_id
             WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-3 days')
             GROUP BY fp.pet_id
+        ),
+        cancels_3d AS (
+            SELECT 
+                fp.pet_id,
+                SUM(COALESCE(ph.estimated_cancels, 0)) as cancels_3d
+            FROM filtered_pets fp
+            JOIN pet_price_history ph ON fp.pet_id = ph.pet_id
+            WHERE ph.realm_id = ? AND ph.recorded_at >= datetime('now', '-3 days')
+            GROUP BY fp.pet_id
         )
         SELECT 
             fp.pet_id, fp.name, fp.icon_url, fp.source, fp.creature_type, fp.creature_id, 
@@ -1836,16 +1891,18 @@ class DataManager:
             lp.min_price, lp.total_quantity, lp.quality_id, lp.level,
             COALESCE(s3.sales_3d, 0) as sales_3d,
             COALESCE(mp3.min_price_3d, lp.min_price) as min_price_3d,
+            COALESCE(c3.cancels_3d, 0) as cancels_3d,
             fp.name_normalized
         FROM filtered_pets fp
         LEFT JOIN latest_prices lp ON fp.pet_id = lp.pet_id
         LEFT JOIN sales_3d s3 ON fp.pet_id = s3.pet_id
         LEFT JOIN min_price_3d mp3 ON fp.pet_id = mp3.pet_id
+        LEFT JOIN cancels_3d c3 ON fp.pet_id = c3.pet_id
         ORDER BY {sort_expression}
         """
         
-        # Add realm params (4 times now)
-        query_params.extend([realm_id, realm_id, realm_id, realm_id])
+        # Add realm params (5 times now)
+        query_params.extend([realm_id, realm_id, realm_id, realm_id, realm_id])
         
         if sort_by == "name":
              query += " LIMIT ? OFFSET ?" 
@@ -1862,7 +1919,7 @@ class DataManager:
 
 
     def get_pet_all_realms_prices(self, pet_id: int) -> List[Dict]:
-        """Récupère les derniers prix d'un pet sur tous les serveurs avec ventes 3j"""
+        """Récupère les derniers prix d'un pet sur tous les serveurs avec ventes 3j et cancels"""
         conn = self._get_connection()
         cursor = conn.cursor()
         
@@ -1873,7 +1930,8 @@ class DataManager:
             SELECT r.realm_id, r.name as realm_name, r.population, r.region,
                    ph.min_price, ph.total_quantity, ph.quality_id, ph.level, ph.recorded_at,
                    COALESCE(sales.sales_3d, 0) as sales_3d,
-                   COALESCE(mp3.min_price_3d, ph.min_price) as min_price_3d
+                   COALESCE(mp3.min_price_3d, ph.min_price) as min_price_3d,
+                   COALESCE(cancels.cancels_3d, 0) as cancels_3d
             FROM realms r
             LEFT JOIN (
                 SELECT realm_id, min_price, total_quantity, quality_id, level, recorded_at,
@@ -1893,8 +1951,14 @@ class DataManager:
                 WHERE pet_id = ? AND recorded_at >= ?
                 GROUP BY realm_id
             ) mp3 ON r.realm_id = mp3.realm_id
+            LEFT JOIN (
+                SELECT realm_id, SUM(COALESCE(estimated_cancels, 0)) as cancels_3d
+                FROM pet_price_history
+                WHERE pet_id = ? AND recorded_at >= ?
+                GROUP BY realm_id
+            ) cancels ON r.realm_id = cancels.realm_id
             ORDER BY CASE WHEN ph.min_price IS NULL THEN 1 ELSE 0 END, ph.min_price ASC
-        """, (pet_id, pet_id, date_3d, pet_id, date_3d))
+        """, (pet_id, pet_id, date_3d, pet_id, date_3d, pet_id, date_3d))
         
         rows = cursor.fetchall()
         conn.close()
@@ -2023,7 +2087,7 @@ class DataManager:
     def batch_record_pet_prices(self, pet_data_list: List[Tuple]):
         """
         Enregistre un lot de données de prix pour les pets.
-        Format: [(pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level, estimated_sales), ...]
+        Format: [(pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level, estimated_sales, estimated_cancels), ...]
         """
         if not pet_data_list:
             return
@@ -2033,8 +2097,8 @@ class DataManager:
         
         cursor.executemany("""
             INSERT INTO pet_price_history 
-            (pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level, estimated_sales)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (pet_id, realm_id, min_price, avg_price, total_quantity, quality_id, level, estimated_sales, estimated_cancels)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, pet_data_list)
         
         conn.commit()

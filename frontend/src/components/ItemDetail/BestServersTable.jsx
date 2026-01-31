@@ -17,7 +17,8 @@ export function BestServersTable({ bestServers, styles }) {
                             <th>#</th>
                             <th>Serveur</th>
                             <th>Prix Min (3j)</th>
-                            <th>Ventes (3j)</th>
+                            <th>Ventes</th>
+                            <th>🔄 Cancels</th>
                             <th>Score</th>
                         </tr>
                     </thead>
@@ -31,6 +32,9 @@ export function BestServersTable({ bestServers, styles }) {
                                 <td><PriceDisplay value={server.min_price_3d ?? server.min_price} /></td>
                                 <td>
                                     {server.sales_3d ?? 'N/A'}
+                                </td>
+                                <td style={{ color: (server.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'inherit' }}>
+                                    {server.cancels_3d ?? 0}
                                 </td>
                                 <td>
                                     <span className={`${styles.scoreBadge} ${server.score >= 70 ? styles.scoreHigh : server.score >= 40 ? styles.scoreMedium : styles.scoreLow}`}>
@@ -62,6 +66,9 @@ export function BestServersTable({ bestServers, styles }) {
                             <PriceDisplay value={server.min_price} />
                             <span>
                                 Ventes: {server.sales_3d ?? 'N/A'}
+                            </span>
+                            <span style={{ color: (server.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'inherit' }}>
+                                🔄 {server.cancels_3d ?? 0}
                             </span>
                         </div>
                     </div>
