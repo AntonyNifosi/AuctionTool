@@ -170,7 +170,7 @@ function ItemsPage() {
                                     <div className="mobile-card-meta">
                                         <span className="badge">{item.category}</span>
                                         <span>Ventes: {item.sales_3d ?? 0}</span>
-                                        <span style={{ color: (item.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'inherit' }}>🔄 {item.cancels_3d ?? 0}</span>
+                                        <span style={{ color: (item.cancels_3d ?? 0) > 10 ? 'var(--color-warning)' : 'inherit' }}>🔄 {item.cancels_3d ?? 0}</span>
                                     </div>
 
                                     <div className="mobile-card-footer">
@@ -291,7 +291,7 @@ function ItemsPage() {
                                         <span className="text-muted">{item.profession_name || '-'}</span>
                                     </td>
                                     <td>{item.sales_3d ?? 0}</td>
-                                    <td style={{ color: (item.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'inherit' }}>{item.cancels_3d ?? 0}</td>
+                                    <td style={{ color: (item.cancels_3d ?? 0) > 10 ? 'var(--color-warning)' : 'inherit' }}>{item.cancels_3d ?? 0}</td>
                                     <td>
                                         <TrendBadge value={item.trend} />
                                     </td>

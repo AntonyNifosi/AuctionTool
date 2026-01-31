@@ -315,7 +315,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                                 </td>
                                                                 <td><PriceDisplay value={server.min_price_3d ?? server.min_price} /></td>
                                                                 <td>{server.sales_3d ?? '0'}</td>
-                                                                <td style={{ color: (server.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'inherit' }}>{server.cancels_3d ?? 0}</td>
+                                                                <td style={{ color: (server.cancels_3d ?? 0) > 10 ? 'var(--color-warning)' : 'inherit' }}>{server.cancels_3d ?? 0}</td>
                                                                 <td style={{ fontWeight: 600, color: 'var(--accent)' }}>
                                                                     {server.scorePercent}%
                                                                 </td>
@@ -353,7 +353,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                         </div>
                                                         <div className={styles.mobileListRow}>
                                                             <span className="text-muted">Ventes: {server.sales_3d ?? '0'}</span>
-                                                            <span style={{ color: (server.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'var(--text-muted)' }}>🔄 {server.cancels_3d ?? 0}</span>
+                                                            <span style={{ color: (server.cancels_3d ?? 0) > 10 ? 'var(--color-warning)' : 'var(--text-muted)' }}>🔄 {server.cancels_3d ?? 0}</span>
                                                         </div>
                                                     </div>
                                                 ))}
@@ -413,7 +413,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                                 <td><PriceDisplay value={price.min_price_3d ?? price.min_price} /></td>
                                                                 <td><PriceDisplay value={price.min_price} /></td>
                                                                 <td>{price.sales_3d ?? 0}</td>
-                                                                <td style={{ color: (price.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'inherit' }}>{price.cancels_3d ?? 0}</td>
+                                                                <td style={{ color: (price.cancels_3d ?? 0) > 10 ? 'var(--color-warning)' : 'inherit' }}>{price.cancels_3d ?? 0}</td>
                                                                 <td className="text-muted">{formatTimeDiff(price.recorded_at)}</td>
                                                             </tr>
                                                         ))}
@@ -444,7 +444,7 @@ function PetDetailModal({ pet, realmId, onClose }) {
                                                         <div className={styles.mobileListRow}>
                                                             <span>Actuel: <PriceDisplay value={price.min_price} /></span>
                                                             <span className="text-muted">Ventes: {price.sales_3d ?? 0}</span>
-                                                            <span style={{ color: (price.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'var(--text-muted)' }}>🔄 {price.cancels_3d ?? 0}</span>
+                                                            <span style={{ color: (price.cancels_3d ?? 0) > 10 ? 'var(--color-warning)' : 'var(--text-muted)' }}>🔄 {price.cancels_3d ?? 0}</span>
                                                         </div>
                                                     </div>
                                                 ))}

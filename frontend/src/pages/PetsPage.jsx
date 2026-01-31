@@ -325,7 +325,7 @@ function PetsPage() {
                                         <PriceDisplay value={pet.min_price} />
                                     </td>
                                     <td>{pet.sales_3d ?? 0}</td>
-                                    <td style={{ color: (pet.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'inherit' }}>{pet.cancels_3d ?? 0}</td>
+                                    <td style={{ color: (pet.cancels_3d ?? 0) > 10 ? 'var(--color-warning)' : 'inherit' }}>{pet.cancels_3d ?? 0}</td>
                                     <td>
                                         {pet.is_tradable ? '✅' : '❌'}
                                     </td>

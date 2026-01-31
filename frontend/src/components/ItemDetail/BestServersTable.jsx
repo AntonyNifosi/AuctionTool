@@ -33,7 +33,7 @@ export function BestServersTable({ bestServers, styles }) {
                                 <td>
                                     {server.sales_3d ?? 'N/A'}
                                 </td>
-                                <td style={{ color: (server.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'inherit' }}>
+                                <td style={{ color: (server.cancels_3d ?? 0) > 10 ? 'var(--color-warning)' : 'inherit' }}>
                                     {server.cancels_3d ?? 0}
                                 </td>
                                 <td>
@@ -67,7 +67,7 @@ export function BestServersTable({ bestServers, styles }) {
                             <span>
                                 Ventes: {server.sales_3d ?? 'N/A'}
                             </span>
-                            <span style={{ color: (server.cancels_3d ?? 0) > 10 ? 'var(--warning)' : 'inherit' }}>
+                            <span style={{ color: (server.cancels_3d ?? 0) > 10 ? 'var(--color-warning)' : 'inherit' }}>
                                 🔄 {server.cancels_3d ?? 0}
                             </span>
                         </div>
