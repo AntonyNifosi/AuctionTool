@@ -971,6 +971,12 @@ class DataManager:
                 WHERE item_id = ? AND recorded_at >= ?
                 GROUP BY realm_id
             ),
+            Cancels3Days AS (
+                SELECT realm_id, SUM(COALESCE(estimated_cancels, 0)) as cancels_3d
+                FROM price_history
+                WHERE item_id = ? AND recorded_at >= ?
+                GROUP BY realm_id
+            ),
             MinPrice3Days AS (
                 SELECT realm_id, MIN(min_price) as min_price_3d
                 FROM price_history
@@ -984,14 +990,16 @@ class DataManager:
                 l.min_price,
                 l.total_quantity as current_volume,
                 COALESCE(s.sales_3d, 0) as sales_3d,
+                COALESCE(c.cancels_3d, 0) as cancels_3d,
                 COALESCE(mp.min_price_3d, l.min_price) as min_price_3d
             FROM realms r
             JOIN Latest l ON r.realm_id = l.realm_id AND l.rn = 1
             LEFT JOIN Sales3Days s ON r.realm_id = s.realm_id
+            LEFT JOIN Cancels3Days c ON r.realm_id = c.realm_id
             LEFT JOIN MinPrice3Days mp ON r.realm_id = mp.realm_id
         """
         
-        cursor.execute(query, (item_id, item_id, date_3d, item_id, date_3d))
+        cursor.execute(query, (item_id, item_id, date_3d, item_id, date_3d, item_id, date_3d))
         rows = cursor.fetchall()
         conn.close()
         
