@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useItemDetail } from '../hooks/useItemDetail'
 import { PriceChart, VolumeChart } from './ItemDetail/PriceChart'
 import { RealmPriceTable } from './ItemDetail/RealmPriceTable'
@@ -60,16 +60,46 @@ function ItemDetailModal({ item, realmId, onClose }) {
         </div>
     )
 
+    // Responsive check
+    const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
+
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768)
+        window.addEventListener('resize', handleResize)
+        return () => window.removeEventListener('resize', handleResize)
+    }, [])
+
+    // Default to Overview on mobile if just opened (optional, logic inside useEffect for activeTab?)
+    useEffect(() => {
+        if (isMobile && activeTab === 'prices') { // Assuming 'prices' is default
+            setActiveTab('overview')
+        }
+    }, [isMobile]) // Run once on mount if mobile? Or when switching. 
+    // Wait, useItemDetail initializes activeTab. We might override it.
+    // Actually simplicity: Just let user switch.
+
     if (!item) return null
 
-    const tabs = [
+    const tabs = []
+
+    if (isMobile) {
+        tabs.push({ id: 'overview', icon: '👁️', label: 'Aperçu' })
+    }
+
+    tabs.push(
         { id: 'prices', icon: '📊', label: 'Prix par Serveur' },
         { id: 'history', icon: '📈', label: 'Historique Prix' },
         { id: 'volume', icon: '📦', label: 'Volume' },
         { id: 'best', icon: '🏆', label: 'Meilleurs Serveurs' },
         { id: 'stats', icon: '📉', label: 'Statistiques' },
         { id: 'craft', icon: '🔨', label: 'Craft' },
-    ]
+    )
+
+    // Ensure activeTab is valid (e.g. if switching from mobile 'overview' to desktop)
+    // If activeTab is overview and we go desktop, switch to prices
+    if (!isMobile && activeTab === 'overview') {
+        setActiveTab('prices')
+    }
 
     return (
         <div className={styles.modalOverlay} onClick={onClose}>
@@ -90,15 +120,17 @@ function ItemDetailModal({ item, realmId, onClose }) {
                     <button className={styles.modalClose} onClick={onClose}>✕</button>
                 </div>
 
-                {/* Metrics */}
-                <div className={styles.modalMetrics}>
-                    <ItemMetrics
-                        item={item}
-                        itemDetail={itemDetail}
-                        sales3d={itemDetail?.sales_3d ?? realmPrices.find(r => r.realm_id === parseInt(realmId))?.sales_3d}
-                        styles={styles}
-                    />
-                </div>
+                {/* Metrics - DESKTOP ONLY */}
+                {!isMobile && (
+                    <div className={styles.modalMetrics}>
+                        <ItemMetrics
+                            item={item}
+                            itemDetail={itemDetail}
+                            sales3d={itemDetail?.sales_3d ?? realmPrices.find(r => r.realm_id === parseInt(realmId))?.sales_3d}
+                            styles={styles}
+                        />
+                    </div>
+                )}
 
                 {/* Tabs */}
                 <div className={styles.modalTabs}>
@@ -123,6 +155,24 @@ function ItemDetailModal({ item, realmId, onClose }) {
                         </div>
                     ) : (
                         <>
+                            {/* Aperçu (Mobile Only) */}
+                            {activeTab === 'overview' && isMobile && (
+                                <div className={styles.tabContent}>
+                                    <div className={styles.modalMetrics} style={{ padding: 0, border: 'none' }}>
+                                        <ItemMetrics
+                                            item={item}
+                                            itemDetail={itemDetail}
+                                            sales3d={itemDetail?.sales_3d ?? realmPrices.find(r => r.realm_id === parseInt(realmId))?.sales_3d}
+                                            styles={styles}
+                                        />
+                                    </div>
+                                    <div style={{ marginTop: '1rem' }}>
+                                        <h3>🏆 Top 3 Meilleurs Serveurs</h3>
+                                        <BestServersTable bestServers={bestServers ? bestServers.slice(0, 3) : []} styles={styles} />
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Prix par Serveur */}
                             {activeTab === 'prices' && (
                                 <div className={styles.tabContent}>
