@@ -857,6 +857,7 @@ class DataManager:
                 "auction_count": row["auction_count"],
                 "recorded_at": row["recorded_at"],
                 "sales_3d": row["sales_3d"],
+                "cancels_3d": row["cancels_3d"],
                 "trend": row["trend"], 
                 "volume_change": None,
                 "profession_name": row["profession_name"],

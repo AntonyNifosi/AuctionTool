@@ -32,6 +32,7 @@ class ItemSummary(ItemBase):
     total_quantity: Optional[int] = None
     auction_count: Optional[int] = None
     sales_3d: Optional[int] = 0
+    cancels_3d: Optional[int] = 0
     trend: Optional[float] = None
     volume_change: Optional[int] = None
     recorded_at: Optional[str] = None
@@ -93,6 +94,7 @@ class ProfitItem(BaseModel):
     profit: Optional[int] = None
     profit_margin: Optional[float] = None
     volume: Optional[int] = None
+    cancels_3d: Optional[int] = 0
     score: Optional[float] = None
 
 
@@ -105,6 +107,7 @@ class PetSummary(BaseModel):
     is_tradable: bool = False
     min_price: Optional[int] = None
     sales_3d: Optional[int] = 0
+    cancels_3d: Optional[int] = 0
     quality: Optional[str] = None
 
 
