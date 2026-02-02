@@ -69,14 +69,57 @@ function ItemDetailModal({ item, realmId, onClose }) {
         return () => window.removeEventListener('resize', handleResize)
     }, [])
 
-    // Default to Overview on mobile if just opened (optional, logic inside useEffect for activeTab?)
+    // Default to Overview on mobile if just opened
     useEffect(() => {
-        if (isMobile && activeTab === 'prices') { // Assuming 'prices' is default
+        if (isMobile && activeTab === 'prices') {
             setActiveTab('overview')
         }
-    }, [isMobile]) // Run once on mount if mobile? Or when switching. 
-    // Wait, useItemDetail initializes activeTab. We might override it.
-    // Actually simplicity: Just let user switch.
+    }, [isMobile])
+
+    // Swipe Logic
+    const [touchStart, setTouchStart] = useState(null)
+    const [touchEnd, setTouchEnd] = useState(null)
+
+    // Minimum distance for swipe
+    const minSwipeDistance = 50
+
+    const onTouchStart = (e) => {
+        setTouchEnd(null)
+        setTouchStart({ x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY })
+    }
+
+    const onTouchMove = (e) => {
+        setTouchEnd({ x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY })
+    }
+
+    const onTouchEnd = () => {
+        if (!touchStart || !touchEnd) return
+
+        const distanceX = touchStart.x - touchEnd.x
+        const distanceY = touchStart.y - touchEnd.y
+        const isLeftSwipe = distanceX > minSwipeDistance
+        const isRightSwipe = distanceX < -minSwipeDistance
+
+        // Check if horizontal distance is dominant to avoid scroll interference
+        if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
+
+            const currentIndex = tabs.findIndex(t => t.id === activeTab)
+
+            if (isLeftSwipe) {
+                // Swipe Left -> Next Tab
+                if (currentIndex < tabs.length - 1) {
+                    setActiveTab(tabs[currentIndex + 1].id)
+                }
+            }
+
+            if (isRightSwipe) {
+                // Swipe Right -> Prev Tab
+                if (currentIndex > 0) {
+                    setActiveTab(tabs[currentIndex - 1].id)
+                }
+            }
+        }
+    }
 
     if (!item) return null
 
@@ -95,15 +138,20 @@ function ItemDetailModal({ item, realmId, onClose }) {
         { id: 'craft', icon: '🔨', label: 'Craft' },
     )
 
-    // Ensure activeTab is valid (e.g. if switching from mobile 'overview' to desktop)
-    // If activeTab is overview and we go desktop, switch to prices
+    // Ensure activeTab is valid
     if (!isMobile && activeTab === 'overview') {
         setActiveTab('prices')
     }
 
     return (
         <div className={styles.modalOverlay} onClick={onClose}>
-            <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div
+                className={styles.modalContent}
+                onClick={(e) => e.stopPropagation()}
+                onTouchStart={onTouchStart}
+                onTouchMove={onTouchMove}
+                onTouchEnd={onTouchEnd}
+            >
                 {/* Header */}
                 <div className={styles.modalHeader}>
                     <div className={styles.modalTitleRow}>
