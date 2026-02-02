@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useItemDetail } from '../hooks/useItemDetail'
 import { PriceChart, VolumeChart } from './ItemDetail/PriceChart'
 import { RealmPriceTable } from './ItemDetail/RealmPriceTable'
@@ -69,58 +69,6 @@ function ItemDetailModal({ item, realmId, onClose }) {
         return () => window.removeEventListener('resize', handleResize)
     }, [])
 
-    // Default to Overview on mobile if just opened
-    useEffect(() => {
-        if (isMobile && activeTab === 'prices') {
-            setActiveTab('overview')
-        }
-    }, [isMobile])
-
-    // Swipe Logic
-    const [touchStart, setTouchStart] = useState(null)
-    const [touchEnd, setTouchEnd] = useState(null)
-
-    // Minimum distance for swipe
-    const minSwipeDistance = 50
-
-    const onTouchStart = (e) => {
-        setTouchEnd(null)
-        setTouchStart({ x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY })
-    }
-
-    const onTouchMove = (e) => {
-        setTouchEnd({ x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY })
-    }
-
-    const onTouchEnd = () => {
-        if (!touchStart || !touchEnd) return
-
-        const distanceX = touchStart.x - touchEnd.x
-        const distanceY = touchStart.y - touchEnd.y
-        const isLeftSwipe = distanceX > minSwipeDistance
-        const isRightSwipe = distanceX < -minSwipeDistance
-
-        // Check if horizontal distance is dominant to avoid scroll interference
-        if (Math.abs(distanceX) > Math.abs(distanceY) && Math.abs(distanceX) > minSwipeDistance) {
-
-            const currentIndex = tabs.findIndex(t => t.id === activeTab)
-
-            if (isLeftSwipe) {
-                // Swipe Left -> Next Tab
-                if (currentIndex < tabs.length - 1) {
-                    setActiveTab(tabs[currentIndex + 1].id)
-                }
-            }
-
-            if (isRightSwipe) {
-                // Swipe Right -> Prev Tab
-                if (currentIndex > 0) {
-                    setActiveTab(tabs[currentIndex - 1].id)
-                }
-            }
-        }
-    }
-
     if (!item) return null
 
     const tabs = []
@@ -139,19 +87,184 @@ function ItemDetailModal({ item, realmId, onClose }) {
     )
 
     // Ensure activeTab is valid
-    if (!isMobile && activeTab === 'overview') {
-        setActiveTab('prices')
+    useEffect(() => {
+        if (isMobile && activeTab === 'prices') setActiveTab('overview')
+        if (!isMobile && activeTab === 'overview') setActiveTab('prices')
+    }, [isMobile])
+
+    // Swipe Logic
+    const [dragOffset, setDragOffset] = useState(0)
+    const [isDragging, setIsDragging] = useState(false)
+    const [touchStartX, setTouchStartX] = useState(null)
+    const [touchStartY, setTouchStartY] = useState(null) // Added Y
+
+    // Lock direction to prevent jitter
+    // null = undetected, 'h' = horizontal (swipe), 'v' = vertical (scroll)
+    // We need a Ref to store the lock because onTouchMove fires rapidly and we don't want to depend on state updates for the immediate next frame logic
+    const swipeDirectionRef = useRef(null)
+
+    // Refs for tabs to auto-scroll
+    const tabRefs = useRef({})
+
+    const activeIndex = tabs.findIndex(t => t.id === activeTab)
+
+    // Auto-scroll active tab into view
+    useEffect(() => {
+        if (tabRefs.current[activeTab]) {
+            tabRefs.current[activeTab].scrollIntoView({
+                behavior: 'smooth',
+                block: 'nearest',
+                inline: 'center'
+            })
+        }
+    }, [activeTab])
+
+    const onTouchStart = (e) => {
+        // Prevent swipe if interacting with a chart
+        if (e.target.closest('.recharts-surface, .recharts-responsive-container')) {
+            return
+        }
+
+        setIsDragging(true)
+        setTouchStartX(e.targetTouches[0].clientX)
+        setTouchStartY(e.targetTouches[0].clientY)
+        swipeDirectionRef.current = null // Reset
+    }
+
+    const onTouchMove = (e) => {
+        if (!isDragging || touchStartX === null) return
+
+        const currentX = e.targetTouches[0].clientX
+        const currentY = e.targetTouches[0].clientY
+
+        const diffX = currentX - touchStartX
+        const diffY = currentY - touchStartY
+
+        // Determine direction if not yet locked
+        if (!swipeDirectionRef.current) {
+            if (Math.abs(diffX) > 10 && Math.abs(diffX) > Math.abs(diffY)) {
+                swipeDirectionRef.current = 'h'
+            } else if (Math.abs(diffY) > 10) {
+                swipeDirectionRef.current = 'v'
+            }
+        }
+
+        // Only move carousel if locked horizontally
+        if (swipeDirectionRef.current === 'h') {
+            // Prevent native scroll if we are swiping? 
+            // e.preventDefault() // React passive event issue?
+            // Just updating dragOffset allows visual feedback.
+            setDragOffset(diffX)
+        }
+        // If 'v', do nothing (allow native scroll)
+    }
+
+    const onTouchEnd = () => {
+        if (!isDragging) return
+
+        // Only trigger switch if we were actually swiping horizontally
+        if (swipeDirectionRef.current === 'h') {
+            const threshold = 50 // px
+            if (dragOffset < -threshold && activeIndex < tabs.length - 1) {
+                setActiveTab(tabs[activeIndex + 1].id)
+            } else if (dragOffset > threshold && activeIndex > 0) {
+                setActiveTab(tabs[activeIndex - 1].id)
+            }
+        }
+
+        setIsDragging(false)
+        setDragOffset(0)
+        setTouchStartX(null)
+        setTouchStartY(null)
+        swipeDirectionRef.current = null
+    }
+
+    // Helper to render content
+    const renderTabContent = (tabId) => {
+        switch (tabId) {
+            case 'overview':
+                return (
+                    <div className={styles.tabContent}>
+                        <div className={styles.modalMetrics} style={{ padding: 0, border: 'none' }}>
+                            <ItemMetrics
+                                item={item}
+                                itemDetail={itemDetail}
+                                sales3d={itemDetail?.sales_3d ?? realmPrices.find(r => r.realm_id === parseInt(realmId))?.sales_3d}
+                                styles={styles}
+                            />
+                        </div>
+                        <div style={{ marginTop: '1rem' }}>
+                            <h3>🏆 Top 3 Meilleurs Serveurs</h3>
+                            <BestServersTable bestServers={bestServers ? bestServers.slice(0, 3) : []} styles={styles} />
+                        </div>
+                    </div>
+                )
+            case 'prices':
+                return (
+                    <div className={styles.tabContent}>
+                        <h3>📊 Prix sur tous les serveurs</h3>
+                        <RealmPriceTable realmPrices={realmPrices} styles={styles} />
+                    </div>
+                )
+            case 'history':
+                return (
+                    <div className={styles.tabContent}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3>📈 Historique des prix</h3>
+                            <TimeRangeControls />
+                        </div>
+                        <PriceChart data={filteredData} styles={styles} />
+                    </div>
+                )
+            case 'volume':
+                return (
+                    <div className={styles.tabContent}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3>📦 Évolution du volume</h3>
+                            <TimeRangeControls />
+                        </div>
+                        <VolumeChart data={filteredData} styles={styles} />
+                    </div>
+                )
+            case 'best':
+                return (
+                    <div className={styles.tabContent}>
+                        <h3>🏆 Meilleurs serveurs pour vendre</h3>
+                        <BestServersTable bestServers={bestServers} styles={styles} />
+                    </div>
+                )
+            case 'stats':
+                return (
+                    <div className={styles.tabContent}>
+                        <h3>📉 Statistiques détaillées</h3>
+                        <div className={`${styles.statsGrid} stats-grid`}>
+                            <div className="stat-card">
+                                <div className="stat-value">{realmPrices.filter(p => p.min_price).length}</div>
+                                <div className="stat-label">Serveurs avec stock</div>
+                            </div>
+                            <div className="stat-card">
+                                <div className="stat-value">
+                                    {itemDetail?.price_history?.length || 0}
+                                </div>
+                                <div className="stat-label">Points d'historique</div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            case 'craft':
+                return (
+                    <div className={styles.tabContent}>
+                        <h3>🔨 Informations de craft</h3>
+                        <CraftInfo item={item} itemDetail={itemDetail} styles={styles} />
+                    </div>
+                )
+            default: return null
+        }
     }
 
     return (
         <div className={styles.modalOverlay} onClick={onClose}>
-            <div
-                className={styles.modalContent}
-                onClick={(e) => e.stopPropagation()}
-                onTouchStart={onTouchStart}
-                onTouchMove={onTouchMove}
-                onTouchEnd={onTouchEnd}
-            >
+            <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
                 <div className={styles.modalHeader}>
                     <div className={styles.modalTitleRow}>
@@ -185,8 +298,10 @@ function ItemDetailModal({ item, realmId, onClose }) {
                     {tabs.map((tab) => (
                         <button
                             key={tab.id}
+                            ref={(el) => (tabRefs.current[tab.id] = el)}
                             className={`${styles.modalTab} ${activeTab === tab.id ? styles.activeTab : ''}`}
                             onClick={() => setActiveTab(tab.id)}
+                            style={{ padding: isMobile ? '8px 4px' : undefined }} // Compact padding
                         >
                             <span>{tab.icon}</span>
                             <span>{tab.label}</span>
@@ -194,101 +309,37 @@ function ItemDetailModal({ item, realmId, onClose }) {
                     ))}
                 </div>
 
-                {/* Tab Content */}
-                <div className={styles.modalBody}>
-                    {loading ? (
-                        <div className={styles.loadingState}>
-                            <div className={styles.spinner}></div>
-                            <p>Chargement...</p>
+                {/* Body / Carousel */}
+                {isMobile ? (
+                    <div
+                        className={styles.swipeViewport}
+                        onTouchStart={onTouchStart}
+                        onTouchMove={onTouchMove}
+                        onTouchEnd={onTouchEnd}
+                    >
+                        <div
+                            className={styles.swipeTrack}
+                            style={{
+                                transform: `translateX(calc(-${activeIndex * 100}% + ${dragOffset}px))`,
+                                transition: isDragging ? 'none' : 'transform 0.3s ease-out'
+                            }}
+                        >
+                            {tabs.map(tab => (
+                                <div key={tab.id} className={styles.swipeSlide}>
+                                    {renderTabContent(tab.id)}
+                                </div>
+                            ))}
                         </div>
-                    ) : (
-                        <>
-                            {/* Aperçu (Mobile Only) */}
-                            {activeTab === 'overview' && isMobile && (
-                                <div className={styles.tabContent}>
-                                    <div className={styles.modalMetrics} style={{ padding: 0, border: 'none' }}>
-                                        <ItemMetrics
-                                            item={item}
-                                            itemDetail={itemDetail}
-                                            sales3d={itemDetail?.sales_3d ?? realmPrices.find(r => r.realm_id === parseInt(realmId))?.sales_3d}
-                                            styles={styles}
-                                        />
-                                    </div>
-                                    <div style={{ marginTop: '1rem' }}>
-                                        <h3>🏆 Top 3 Meilleurs Serveurs</h3>
-                                        <BestServersTable bestServers={bestServers ? bestServers.slice(0, 3) : []} styles={styles} />
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Prix par Serveur */}
-                            {activeTab === 'prices' && (
-                                <div className={styles.tabContent}>
-                                    <h3>📊 Prix sur tous les serveurs</h3>
-                                    <RealmPriceTable realmPrices={realmPrices} styles={styles} />
-                                </div>
-                            )}
-
-                            {/* Historique Prix */}
-                            {activeTab === 'history' && (
-                                <div className={styles.tabContent}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <h3>📈 Historique des prix</h3>
-                                        <TimeRangeControls />
-                                    </div>
-                                    <PriceChart data={filteredData} styles={styles} />
-                                </div>
-                            )}
-
-                            {/* Volume */}
-                            {activeTab === 'volume' && (
-                                <div className={styles.tabContent}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <h3>📦 Évolution du volume</h3>
-                                        <TimeRangeControls />
-                                    </div>
-                                    <VolumeChart data={filteredData} styles={styles} />
-                                </div>
-                            )}
-
-                            {/* Meilleurs Serveurs */}
-                            {activeTab === 'best' && (
-                                <div className={styles.tabContent}>
-                                    <h3>🏆 Meilleurs serveurs pour vendre</h3>
-                                    <BestServersTable bestServers={bestServers} styles={styles} />
-                                </div>
-                            )}
-
-                            {/* Statistiques */}
-                            {activeTab === 'stats' && (
-                                <div className={styles.tabContent}>
-                                    <h3>📉 Statistiques détaillées</h3>
-                                    <div className={`${styles.statsGrid} stats-grid`}>
-                                        {/* Reuse ItemMetrics logic or custom stats */}
-                                        <div className="stat-card">
-                                            <div className="stat-value">{realmPrices.filter(p => p.min_price).length}</div>
-                                            <div className="stat-label">Serveurs avec stock</div>
-                                        </div>
-                                        <div className="stat-card">
-                                            <div className="stat-value">
-                                                {itemDetail?.price_history?.length || 0}
-                                            </div>
-                                            <div className="stat-label">Points d'historique</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Craft */}
-                            {activeTab === 'craft' && (
-                                <div className={styles.tabContent}>
-                                    <h3>🔨 Informations de craft</h3>
-                                    <CraftInfo item={item} itemDetail={itemDetail} styles={styles} />
-                                </div>
-                            )}
-                        </>
-                    )}
-                </div>
+                    </div>
+                ) : (
+                    <div className={styles.modalBody}>
+                        {loading ? (
+                            <div className={styles.loadingState}>
+                                <p>Chargement...</p>
+                            </div>
+                        ) : renderTabContent(activeTab)}
+                    </div>
+                )}
             </div>
         </div>
     )
