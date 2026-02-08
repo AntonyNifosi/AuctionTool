@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRealm } from '../context/RealmContext'
 import PriceDisplay from '../components/PriceDisplay'
 import PetDetailModal from '../components/PetDetailModal'
@@ -12,6 +12,37 @@ function CollectionPage() {
     const [error, setError] = useState(null)
     const [collection, setCollection] = useState(null)
     const [selectedPet, setSelectedPet] = useState(null)
+    const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false)
+
+    // Calculer les pets filtrés (doublons seulement si activé)
+    const filteredPets = useMemo(() => {
+        if (!collection?.pets) return []
+
+        if (!showDuplicatesOnly) {
+            return collection.pets
+        }
+
+        // Compter les occurrences de chaque pet_id
+        const petCounts = {}
+        collection.pets.forEach(pet => {
+            petCounts[pet.pet_id] = (petCounts[pet.pet_id] || 0) + 1
+        })
+
+        // Ne garder que les pets qui apparaissent plus d'une fois
+        return collection.pets.filter(pet => petCounts[pet.pet_id] > 1)
+    }, [collection?.pets, showDuplicatesOnly])
+
+    // Calculer le nombre de pets en double pour l'affichage
+    const duplicateCount = useMemo(() => {
+        if (!collection?.pets) return 0
+
+        const petCounts = {}
+        collection.pets.forEach(pet => {
+            petCounts[pet.pet_id] = (petCounts[pet.pet_id] || 0) + 1
+        })
+
+        return collection.pets.filter(pet => petCounts[pet.pet_id] > 1).length
+    }, [collection?.pets])
 
     // Pre-fill realm
     useEffect(() => {
@@ -206,9 +237,30 @@ function CollectionPage() {
                         </div>
                     </div>
 
+                    {/* Filter for duplicates */}
+                    <div className="duplicates-filter">
+                        <label className="duplicates-toggle">
+                            <input
+                                type="checkbox"
+                                checked={showDuplicatesOnly}
+                                onChange={(e) => setShowDuplicatesOnly(e.target.checked)}
+                            />
+                            <span className="toggle-slider"></span>
+                            <span className="toggle-label">
+                                📦 Afficher uniquement les doublons
+                                <span className="duplicates-count">({duplicateCount} pets)</span>
+                            </span>
+                        </label>
+                        {showDuplicatesOnly && (
+                            <p className="duplicates-hint">
+                                ⚠️ Attention : tous les exemplaires de vos doublons sont affichés ici. Veillez à en conserver un pour votre collection !
+                            </p>
+                        )}
+                    </div>
+
                     {/* Mobile Grid View (Visible only on mobile) */}
                     <div className="mobile-grid">
-                        {collection.pets.map((pet, index) => (
+                        {filteredPets.map((pet, index) => (
                             <div
                                 className="mobile-card vertical"
                                 key={`card-${pet.pet_id}-${index}`}
@@ -304,7 +356,7 @@ function CollectionPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {collection.pets.map((pet, index) => (
+                                {filteredPets.map((pet, index) => (
                                     <tr
                                         key={`${pet.pet_id}-${index}`}
                                         className="clickable-row"
@@ -368,6 +420,14 @@ function CollectionPage() {
                             </tbody>
                         </table>
                     </div>
+
+                    {/* Message si aucun résultat après filtre */}
+                    {filteredPets.length === 0 && showDuplicatesOnly && (
+                        <div className="no-duplicates-message">
+                            <span>🎉</span>
+                            <p>Aucun doublon dans votre collection !</p>
+                        </div>
+                    )}
                 </>
             )}
 

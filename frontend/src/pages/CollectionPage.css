@@ -79,6 +79,102 @@
     color: var(--text-muted);
 }
 
+/* Duplicates Filter */
+.duplicates-filter {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.duplicates-toggle {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.duplicates-toggle input[type="checkbox"] {
+    display: none;
+}
+
+.toggle-slider {
+    position: relative;
+    width: 48px;
+    height: 26px;
+    background: #3a4556;
+    border: 2px solid #5a6a7a;
+    border-radius: 13px;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.duplicates-toggle input:checked+.toggle-slider {
+    background: var(--accent-gold);
+}
+
+.duplicates-toggle input:checked+.toggle-slider::before {
+    transform: translateX(22px);
+}
+
+.toggle-label {
+    font-size: 1rem;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.duplicates-count {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.duplicates-hint {
+    margin: 0.75rem 0 0 0;
+    padding: 0.5rem 0.75rem;
+    background: rgba(255, 209, 0, 0.1);
+    border-left: 3px solid var(--accent-gold);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.no-duplicates-message {
+    text-align: center;
+    padding: 3rem 1rem;
+    background: var(--surface-elevated);
+    border-radius: var(--radius-lg);
+    border: 1px dashed var(--border-color);
+}
+
+.no-duplicates-message span {
+    font-size: 3rem;
+    display: block;
+    margin-bottom: 1rem;
+}
+
+.no-duplicates-message p {
+    font-size: 1.1rem;
+    color: var(--text-muted);
+    margin: 0;
+}
 
 /* Responsive */
 @media (max-width: 768px) {
@@ -112,6 +208,15 @@
     .stat-icon {
         font-size: 1.5rem;
         margin-bottom: 0.25rem;
+    }
+
+    /* Duplicates filter mobile */
+    .duplicates-filter {
+        padding: 0.75rem 1rem;
+    }
+
+    .toggle-label {
+        font-size: 0.9rem;
     }
 
     /* Hide Table on Mobile */
