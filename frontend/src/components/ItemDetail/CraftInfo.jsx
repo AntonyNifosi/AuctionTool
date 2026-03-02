@@ -37,21 +37,33 @@ export function CraftInfo({ item, itemDetail, styles }) {
                                 </tr>
                             </thead>
                             <tbody>
-                                {itemDetail.reagents.map(r => (
-                                    <tr key={r.item_id}>
-                                        <td style={{ textAlign: 'center', padding: '4px' }}>
-                                            {r.icon_url ? (
-                                                <img src={r.icon_url} alt="" style={{ width: 32, height: 32, borderRadius: 4, border: '1px solid var(--border-color)', display: 'block', margin: '0 auto' }} />
-                                            ) : (
-                                                <div style={{ width: 32, height: 32, borderRadius: 4, background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>📦</div>
-                                            )}
-                                        </td>
-                                        <td style={{ fontWeight: 500 }}>{r.name}</td>
-                                        <td style={{ textAlign: 'right' }}>{r.quantity}</td>
-                                        <td style={{ textAlign: 'right', fontSize: '0.85rem' }}><PriceDisplay value={r.unit_price} /></td>
-                                        <td style={{ textAlign: 'right', fontWeight: 600 }}><PriceDisplay value={(r.unit_price || 0) * r.quantity} /></td>
-                                    </tr>
-                                ))}
+                                {itemDetail.reagents.map(r => {
+                                    const isSlotCategory = r.item_id < 0
+                                    return (
+                                        <tr key={r.item_id} style={isSlotCategory ? { opacity: 0.85, fontStyle: 'italic' } : {}}>
+                                            <td style={{ textAlign: 'center', padding: '4px' }}>
+                                                {isSlotCategory ? (
+                                                    <div style={{ width: 32, height: 32, borderRadius: 4, background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', fontSize: '16px' }}>🔧</div>
+                                                ) : r.icon_url ? (
+                                                    <img src={r.icon_url} alt="" style={{ width: 32, height: 32, borderRadius: 4, border: '1px solid var(--border-color)', display: 'block', margin: '0 auto' }} />
+                                                ) : (
+                                                    <div style={{ width: 32, height: 32, borderRadius: 4, background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>📦</div>
+                                                )}
+                                            </td>
+                                            <td style={{ fontWeight: 500 }}>
+                                                {r.name}
+                                                {isSlotCategory && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 6 }}>(composant)</span>}
+                                            </td>
+                                            <td style={{ textAlign: 'right' }}>{r.quantity}</td>
+                                            <td style={{ textAlign: 'right', fontSize: '0.85rem' }}>
+                                                {isSlotCategory ? <span style={{ color: 'var(--text-muted)' }}>—</span> : <PriceDisplay value={r.unit_price} />}
+                                            </td>
+                                            <td style={{ textAlign: 'right', fontWeight: 600 }}>
+                                                {isSlotCategory ? <span style={{ color: 'var(--text-muted)' }}>—</span> : <PriceDisplay value={(r.unit_price || 0) * r.quantity} />}
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
                             </tbody>
                             <tfoot>
                                 <tr>

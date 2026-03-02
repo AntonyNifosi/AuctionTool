@@ -1129,11 +1129,12 @@ class DataManager:
                 VALUES (?, ?, ?, ?)
             """, (recipe_id, reagent["item_id"], reagent.get("name"), reagent["quantity"]))
             
-            # [NEW] Register as item to fetch icon later
-            cursor.execute("""
-                INSERT OR IGNORE INTO housing_items (item_id, name, category, updated_at)
-                VALUES (?, ?, 'Composant', CURRENT_TIMESTAMP)
-            """, (reagent["item_id"], reagent.get("name")))
+            # [NEW] Register as item to fetch icon later (only for real items, not slot categories)
+            if reagent["item_id"] > 0:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO housing_items (item_id, name, category, updated_at)
+                    VALUES (?, ?, 'Composant', CURRENT_TIMESTAMP)
+                """, (reagent["item_id"], reagent.get("name")))
         
         conn.commit()
         conn.close()

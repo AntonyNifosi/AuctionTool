@@ -526,6 +526,22 @@ class UpdateManager:
                                                 "quantity": r.get("quantity", 1)
                                             })
                                         
+                                        # Sauvegarder les slots de craft modifié (catégories de composants)
+                                        modified_slots = recipe.get("modified_crafting_slots", [])
+                                        for slot in modified_slots:
+                                            slot_type = slot.get("slot_type", {})
+                                            slot_name = slot_type.get("name", "")
+                                            if isinstance(slot_name, dict):
+                                                slot_name = slot_name.get("fr_FR") or slot_name.get("en_US") or ""
+                                            slot_id = slot_type.get("id")
+                                            if slot_id and slot_name:
+                                                # ID négatif pour distinguer des vrais items
+                                                reagents.append({
+                                                    "item_id": -slot_id,
+                                                    "name": slot_name,
+                                                    "quantity": 1
+                                                })
+                                        
                                         if reagents:
                                             dm.save_recipe_reagents(recipe_id, reagents)
                                         
