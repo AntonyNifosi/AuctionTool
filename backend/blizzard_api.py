@@ -343,12 +343,79 @@ class BlizzardAPI:
     
     # ========== PET METHODS ==========
     
-    def get_pets_index(self) -> List[Dict]:
+    def search_pets(self) -> List[Dict]:
         """
-        Récupère la liste de tous les pets du jeu
+        Recherche tous les pets du jeu via l'API Search (100 par page).
+        Extrêmement plus rapide que de fetch les détails individuellement.
         """
-        data = self._make_request("/data/wow/pet/index", STATIC_NAMESPACE)
-        return data.get("pets", [])
+        all_pets = []
+        page_size = 100
+        page = 1
+        
+        while True:
+            params = {
+                "_pageSize": page_size,
+                "_page": page,
+                "orderby": "id:asc"
+            }
+            
+            try:
+                data = self._make_request("/data/wow/search/pet", STATIC_NAMESPACE, params)
+                results = data.get("results", [])
+                
+                if not results:
+                    break
+                    
+                for item in results:
+                    pet_data = item.get("data", {})
+                    # Extraire nom
+                    name = pet_data.get("name", "")
+                    if isinstance(name, dict):
+                        name = name.get("fr_FR") or name.get("en_US") or ""
+                        
+                    # Extraire type de battle pet
+                    battle_pet_type = pet_data.get("battle_pet_type", {})
+                    type_name = battle_pet_type.get("name", "") if battle_pet_type else ""
+                    if isinstance(type_name, dict):
+                        type_name = type_name.get("fr_FR") or type_name.get("en_US") or ""
+                        
+                    # Extraire source
+                    source = pet_data.get("source", {})
+                    source_name = source.get("name", "") if source else ""
+                    if isinstance(source_name, dict):
+                        source_name = source_name.get("fr_FR") or source_name.get("en_US") or ""
+                        
+                    # Creature ID
+                    creature = pet_data.get("creature", {})
+                    creature_id = creature.get("id") if creature else None
+                    
+                    # is_tradable and id
+                    is_tradable = pet_data.get("is_tradable", False)
+                    pet_id = pet_data.get("id")
+                    
+                    if pet_id:
+                        all_pets.append({
+                            "id": pet_id,
+                            "name": name,
+                            "source": source_name,
+                            "creature_type": type_name,
+                            "is_tradable": is_tradable,
+                            "creature_id": creature_id,
+                            # Icon will be handled by fetch_icons background job as needed
+                            "icon_url": None 
+                        })
+                
+                # Vérifier si on a atteint la dernière page
+                page_count = data.get("pageCount", 0)
+                if page >= page_count:
+                    break
+                    
+                page += 1
+                
+            except BlizzardAPIError:
+                break
+                
+        return all_pets
     
     def get_pet_details(self, pet_id: int) -> Dict:
         """

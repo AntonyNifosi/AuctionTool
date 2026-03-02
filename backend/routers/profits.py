@@ -24,30 +24,69 @@ PROFESSIONS = {
     773: "Calligraphie",
 }
 
-# Known expansions for filtering
-KNOWN_EXPANSIONS = [
-    "Khaz Algar", "The War Within",
-    "Îles aux Dragons", "Dragon Isles", "Îles aux dragons",
-    "Shadowlands", "Terres obscures", "Ombreterre",
-    "Kul Tiras", "Zandalar", "Battle for Azeroth",
-    "Legion", "Légion",
-    "Draenor", "Warlords of Draenor",
-    "Pandarie", "Mists of Pandaria", "Pandaria",
-    "Cataclysm", "Cataclysme",
-    "Northrend", "Norfendre", "Wrath of the Lich King",
-    "Outland", "Outreterre", "Burning Crusade",
-    "Classic", "Classique", "Vanilla",
+# Profession names (FR) - ordered longest first to avoid partial matches
+_PROFESSION_NAMES_FR = [
+    "travail du cuir",  # Must be before shorter names
+    "enchantement",
+    "calligraphie",
+    "ingénierie",
+    "joaillerie",
+    "alchimie",
+    "couture",
+    "forge",
 ]
+
+# Prepositions that connect profession to expansion (with both apostrophe types)
+_PREPOSITIONS = [" de ", " des ", " du ", " d'", " d\u2019"]
+
+
+def _strip_profession(text: str) -> str:
+    """Strip profession name and preposition from a tier name to get the expansion"""
+    lower = text.lower().replace("\u2019", "'")  # Normalize typographic apostrophe
+    
+    for prof in _PROFESSION_NAMES_FR:
+        if lower.startswith(prof):
+            remainder = text[len(prof):]
+            remainder_lower = remainder.lower().replace("\u2019", "'")
+            
+            # Try stripping preposition (e.g. "Forge d'Ombreterre" → "Ombreterre")
+            for prep in [" de ", " des ", " du ", " d'"]:
+                if remainder_lower.startswith(prep):
+                    result = remainder[len(prep):].strip()
+                    if result:
+                        return result
+            
+            # No preposition — just strip profession name (e.g. "Forge classique" → "Classique")
+            remainder = remainder.strip()
+            if remainder:
+                return remainder[0].upper() + remainder[1:]
+            return text
+    
+    return text
 
 
 def extract_expansion_name(tier_name: str) -> str:
-    """Extract clean expansion name from tier name"""
+    """Extract clean expansion name from tier name by stripping profession patterns.
+    
+    Handles formats:
+    - "Forge d'Ombreterre" → "Ombreterre"
+    - "Alchimie classique" → "Classique"
+    - "Alchimie de Kul Tiras / Alchimie de Zandalar" → "Kul Tiras / Zandalar"
+    - "Cataclysm" → "Cataclysm" (no profession, returned as-is)
+    """
     if not tier_name:
         return ""
-    for exp in KNOWN_EXPANSIONS:
-        if exp.lower() in tier_name.lower():
-            return exp
-    return ""
+    
+    cleaned = tier_name.strip()
+    
+    if " / " in cleaned:
+        parts = cleaned.split(" / ", 1)
+        part1 = _strip_profession(parts[0].strip())
+        part2 = _strip_profession(parts[1].strip())
+        return f"{part1} / {part2}"
+    
+    # Standard format
+    return _strip_profession(cleaned)
 
 
 @router.get("")
@@ -155,13 +194,14 @@ async def get_expansions(realm_id: int = Query(...)):
     """Get available expansions that have craftable items"""
     dm = get_data_manager()
     
-    # Use optimized method to get distinct expansions directly from recipes
+    # Get raw expansion (tier) names from DB
     raw_expansions = dm.get_all_expansions()
     
+    # Clean: strip profession names to extract just the expansion/zone name
     expansions = set()
     for raw_exp in raw_expansions:
-        display_exp = extract_expansion_name(raw_exp)
-        if display_exp:
-            expansions.add(display_exp)
+        cleaned = extract_expansion_name(raw_exp)
+        if cleaned:
+            expansions.add(cleaned)
     
-    return {"expansions": sorted(list(expansions))}
+    return {"expansions": sorted(expansions)}

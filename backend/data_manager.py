@@ -325,8 +325,14 @@ class DataManager:
         norm_name = self._normalize_text(name)
         
         cursor.execute("""
-            INSERT OR REPLACE INTO housing_items (item_id, name, icon_url, category, name_normalized, updated_at)
+            INSERT INTO housing_items (item_id, name, icon_url, category, name_normalized, updated_at)
             VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(item_id) DO UPDATE SET
+                name = excluded.name,
+                icon_url = COALESCE(excluded.icon_url, housing_items.icon_url),
+                category = excluded.category,
+                name_normalized = excluded.name_normalized,
+                updated_at = CURRENT_TIMESTAMP
         """, (item_id, name, icon_url, category, norm_name))
         
         conn.commit()
@@ -338,7 +344,7 @@ class DataManager:
         cursor = conn.cursor()
         
         cursor.execute("""
-            SELECT item_id, name, icon_url, category 
+            SELECT item_id, name, icon_url, category, updated_at 
             FROM housing_items 
             ORDER BY name
         """)
@@ -1066,15 +1072,28 @@ class DataManager:
 
     # ========== RECIPE METHODS ==========
     
-    def has_recipes_synced(self) -> bool:
-        """Vérifie si des recettes ont déjà été synchronisées avec expansion"""
+    def should_resync_recipes(self, max_age_days: int = 30) -> bool:
+        """Vérifie si les recettes doivent être re-synchronisées (données absentes ou trop anciennes)"""
         conn = self._get_connection()
         cursor = conn.cursor()
-        # Vérifie qu'il y a des recettes ET qu'elles ont l'expansion remplie
-        cursor.execute("SELECT COUNT(*) as count FROM recipes WHERE expansion IS NOT NULL")
+        cursor.execute("SELECT COUNT(*) as count, MAX(updated_at) as last_update FROM recipes WHERE expansion IS NOT NULL")
         row = cursor.fetchone()
         conn.close()
-        return row["count"] > 0
+        
+        if row["count"] == 0:
+            return True  # Pas de recettes
+        
+        if row["last_update"]:
+            try:
+                last_update = datetime.fromisoformat(str(row["last_update"]).replace("Z", "+00:00"))
+                if last_update.tzinfo:
+                    last_update = last_update.replace(tzinfo=None)
+                age = datetime.now() - last_update
+                return age.days >= max_age_days
+            except (ValueError, TypeError):
+                return True
+        
+        return True
     
     def save_recipe(self, recipe_id: int, crafted_item_id: int, 
                     profession_id: int, profession_name: str, recipe_name: str,
@@ -1099,6 +1118,9 @@ class DataManager:
         """
         conn = self._get_connection()
         cursor = conn.cursor()
+        
+        # Supprimer les anciens reagents pour cette recette (évite les doublons lors du re-sync)
+        cursor.execute("DELETE FROM recipe_reagents WHERE recipe_id = ?", (recipe_id,))
         
         # Insérer les nouveaux
         for reagent in reagents:
@@ -1360,18 +1382,24 @@ class DataManager:
             
         # Filtre Expansions
         if expansions:
-            # On utilise LIKE pour matcher flexiblement ou IN pour exact.
-            # Le router passe des noms "propres" (ex: "The War Within"). 
-            # Dans la DB c'est souvent "The War Within" ou "Dragon Isles".
-            # On va utiliser une clause OR avec LIKE pour chaque expansion demandée
-            # pour matcher "The War Within" dans "Expansion: The War Within" par exemple si c'est formaté ainsi,
-            # ou simplement IN si la colonne expansion est propre.
-            # Supposons que la colonne expansion contient le nom exact ou partiel.
+            # Cleaned expansion names from the frontend (e.g. "Ombreterre", "Kul Tiras / Zandalar")
+            # need to match raw tier names in DB (e.g. "Forge d'Ombreterre", "Kul Tiras / Forge de Zandalar")
+            # Simple LIKE %name% works for most cases.
+            # For BfA "Kul Tiras / Zandalar", we split on "/" and require all parts to match.
             
             exp_conditions = []
             for exp in expansions:
-                exp_conditions.append("r.expansion LIKE ?")
-                params.append(f"%{exp}%")
+                if " / " in exp:
+                    # BfA format: each part must be present in the tier name
+                    parts = [p.strip() for p in exp.split("/")]
+                    sub_conditions = []
+                    for part in parts:
+                        sub_conditions.append("r.expansion LIKE ?")
+                        params.append(f"%{part}%")
+                    exp_conditions.append(f"({' AND '.join(sub_conditions)})")
+                else:
+                    exp_conditions.append("r.expansion LIKE ?")
+                    params.append(f"%{exp}%")
             
             if exp_conditions:
                 query += f" AND ({' OR '.join(exp_conditions)})"
@@ -1735,9 +1763,17 @@ class DataManager:
         norm_name = self._normalize_text(name)
         
         cursor.execute("""
-            INSERT OR REPLACE INTO pets 
+            INSERT INTO pets 
             (pet_id, name, icon_url, source, creature_type, creature_id, is_tradable, name_normalized)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(pet_id) DO UPDATE SET
+                name = excluded.name,
+                icon_url = COALESCE(excluded.icon_url, pets.icon_url),
+                source = excluded.source,
+                creature_type = excluded.creature_type,
+                creature_id = excluded.creature_id,
+                is_tradable = excluded.is_tradable,
+                name_normalized = excluded.name_normalized
         """, (pet_id, name, icon_url, source, creature_type, creature_id, is_tradable, norm_name))
         
         conn.commit()
@@ -1756,10 +1792,19 @@ class DataManager:
         cursor = conn.cursor()
         
         try:
+            # Use INSERT ON CONFLICT to preserve existing icon_url if new value is NULL
             cursor.executemany("""
-                INSERT OR REPLACE INTO pets 
+                INSERT INTO pets 
                 (pet_id, name, icon_url, source, creature_type, creature_id, is_tradable, name_normalized)
                 VALUES (:pet_id, :name, :icon_url, :source, :creature_type, :creature_id, :is_tradable, :name_normalized)
+                ON CONFLICT(pet_id) DO UPDATE SET
+                    name = excluded.name,
+                    icon_url = COALESCE(excluded.icon_url, pets.icon_url),
+                    source = excluded.source,
+                    creature_type = excluded.creature_type,
+                    creature_id = excluded.creature_id,
+                    is_tradable = excluded.is_tradable,
+                    name_normalized = excluded.name_normalized
             """, pets_data)
             conn.commit()
         except Exception as e:
@@ -2065,14 +2110,28 @@ class DataManager:
         conn.close()
         return {row["pet_id"] for row in rows}
     
-    def has_pets_synced(self) -> bool:
-        """Vérifie si des pets ont déjà été synchronisés"""
+    def should_resync_pets(self, max_age_days: int = 30) -> bool:
+        """Vérifie si les pets doivent être re-synchronisés (données absentes ou trop anciennes)"""
         conn = self._get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) as count FROM pets")
+        cursor.execute("SELECT COUNT(*) as count, MAX(added_at) as last_sync FROM pets")
         row = cursor.fetchone()
         conn.close()
-        return row["count"] > 0
+        
+        if row["count"] == 0:
+            return True  # Pas de pets
+        
+        if row["last_sync"]:
+            try:
+                last_sync = datetime.fromisoformat(str(row["last_sync"]).replace("Z", "+00:00"))
+                if last_sync.tzinfo:
+                    last_sync = last_sync.replace(tzinfo=None)
+                age = datetime.now() - last_sync
+                return age.days >= max_age_days
+            except (ValueError, TypeError):
+                return True
+        
+        return True
     
     def record_pet_price(self, pet_id: int, realm_id: int, min_price: int,
                          avg_price: float, total_quantity: int, 

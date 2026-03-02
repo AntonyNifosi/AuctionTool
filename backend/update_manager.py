@@ -64,23 +64,37 @@ class UpdateManager:
             self.status_message = "Chargement du catalogue d'items..."
             self.progress = 0.05
             
-            # 1. Charger/Mettre à jour les items de housing
-            # Note: Cette logique est adaptée de app.py load_housing_items
+            # === PHASE 1: CATALOGUE SYNC (housing, pets, recipes) ===
+            
+            # 1a. Charger/Mettre à jour les items de housing
             housing_items = self._sync_housing_items(api, dm)
             if self._stop_event.is_set(): return
-
             housing_item_ids = {item["item_id"] for item in housing_items}
             
-            # Ajouter les IDs des réactifs pour tracker leurs prix
-            reagent_ids = dm.get_all_reagent_ids()
-            target_item_ids = housing_item_ids | reagent_ids  # Union des deux sets
-            print(f"Tracking {len(housing_item_ids)} housing items + {len(reagent_ids)} reagents = {len(target_item_ids)} total")
-            
-            # 2. Sync pets (doit être fait AVANT le scan pour avoir les pet_ids)
-            if not dm.has_pets_synced():
+            # 1b. Sync pets (doit être fait AVANT le scan pour avoir les pet_ids)
+            if dm.should_resync_pets(max_age_days=30):
                 self.status_message = "Synchronisation des pets..."
                 self._sync_pets(api, dm)
                 if self._stop_event.is_set(): return
+            
+            # 1c. Sync recipes (AVANT le scan pour que les reagent_ids soient trackés)
+            if dm.should_resync_recipes(max_age_days=30):
+                self.status_message = "Synchronisation des recettes de craft..."
+                self._sync_recipes(api, dm, housing_item_ids)
+                if self._stop_event.is_set(): return
+            
+            # 1d. Fetch ALL missing icons (housing items + pets) - pas de limite
+            self.status_message = "Récupération des icônes manquantes..."
+            self._fetch_icons(api, dm, limit=None)
+            self._fetch_pet_icons(api, dm, limit=None)
+            if self._stop_event.is_set(): return
+
+            # === PHASE 2: PRICE SCAN ===
+            
+            # Construire la liste de tracking APRÈS le sync des recettes
+            reagent_ids = dm.get_all_reagent_ids()
+            target_item_ids = housing_item_ids | reagent_ids  # Union des deux sets
+            print(f"Tracking {len(housing_item_ids)} housing items + {len(reagent_ids)} reagents = {len(target_item_ids)} total")
             
             self.status_message = "Récupération de la liste des serveurs..."
             self.progress = 0.1
@@ -151,21 +165,8 @@ class UpdateManager:
                 self._process_auctions(0, commodities, reagent_ids, dm)  # realm_id=0 for regional
             except Exception as e:
                 print(f"Error fetching commodities: {e}")
-            
-            if self._stop_event.is_set(): return
-            
-            # 4. Sync recipes (only once, if not already done)
-            if not dm.has_recipes_synced():
-                self.status_message = "Synchronisation des recettes de craft..."
-                self._sync_recipes(api, dm, housing_item_ids)
-                if self._stop_event.is_set(): return
-            
-            # 5. Fetch missing icons (housing items + pets)
-            self.status_message = "Récupération des icônes manquantes..."
-            self._fetch_icons(api, dm)
-            self._fetch_pet_icons(api, dm)
 
-            # 6. Cleanup old data (keep only 7 days)
+            # 4. Cleanup old data (keep only 7 days)
             self.status_message = "Nettoyage des anciennes données..."
             dm.cleanup_old_data(days=7)
 
@@ -180,9 +181,12 @@ class UpdateManager:
         finally:
             self._is_running = False
 
-    def _fetch_icons(self, api, dm):
-        """Récupère les icônes manquantes en arrière-plan"""
-        items_without_icons = dm.get_items_without_icons(limit=100) # Par batch de 100 par scan
+    def _fetch_icons(self, api, dm, limit=100):
+        """Récupère les icônes manquantes. limit=None pour tout récupérer."""
+        items_without_icons = dm.get_items_without_icons(limit=limit or 999999)
+        
+        if items_without_icons:
+            print(f"Fetching icons for {len(items_without_icons)} items...")
         
         for item in items_without_icons:
             if self._stop_event.is_set(): return
@@ -210,10 +214,21 @@ class UpdateManager:
         # Vérifier le cache existant
         existing_items = dm.get_housing_items()
         
-        # Logique simplifiée : si pas assez d'items ou force refresh demandé (logique implicite), on fetch
-        # Ici on assume qu'on fetch si < 1000 items ou si on détecte qu'il manque des items récents
-        has_new_items = any(i['item_id'] > 240000 for i in existing_items) if existing_items else False
-        is_incomplete = len(existing_items) < 1000 or not has_new_items
+        # Re-fetch si pas assez d'items ou si les items n'ont pas été rafraîchis récemment (30 jours)
+        is_stale = False
+        if existing_items:
+            try:
+                latest_update = max(
+                    datetime.fromisoformat(str(i.get('updated_at', '')).replace('Z', '+00:00'))
+                    for i in existing_items if i.get('updated_at')
+                )
+                if latest_update.tzinfo:
+                    latest_update = latest_update.replace(tzinfo=None)
+                is_stale = (datetime.now() - latest_update).days >= 30
+            except (ValueError, TypeError):
+                is_stale = True
+        
+        is_incomplete = len(existing_items) < 1000 or is_stale
         
         if not is_incomplete:
             return existing_items
@@ -533,60 +548,46 @@ class UpdateManager:
         """
         Synchronise la liste des pets depuis l'API Blizzard.
         Récupère tous les pets tradables avec leurs détails (source, type, icône).
-        Optimisé avec des batchs DB pour éviter de bloquer.
+        Optimisé via l'API Search pour récupérer les pets par lots de 100.
         """
         try:
             self.status_message = "Récupération de la liste des pets..."
-            pets_index = api.get_pets_index()
-            total_pets = len(pets_index)
-            print(f"Found {total_pets} pets in API")
+            
+            # search_pets retourne déjà les détails filtrés
+            pets = api.search_pets()
+            
+            # Ne garder que les pets tradables
+            tradable_pets = [p for p in pets if p.get("is_tradable")]
+            total_tradable = len(tradable_pets)
+            print(f"Found {total_tradable} tradable pets via Search API")
             
             synced_count = 0
             batch_pets = []
             BATCH_SIZE = 50
             
-            for i, pet_ref in enumerate(pets_index):
+            for i, pet_data in enumerate(tradable_pets):
                 if self._stop_event.is_set():
                     return
                 
-                pet_id = pet_ref.get("id")
-                if not pet_id:
-                    continue
+                if i % 100 == 0:
+                    self.status_message = f"Synchronisation pets: {i}/{total_tradable}"
                 
-                if i % 50 == 0:
-                    self.status_message = f"Synchronisation pets: {i}/{total_pets}"
+                batch_pets.append({
+                    "pet_id": pet_data["id"],
+                    "name": pet_data.get("name", ""),
+                    "icon_url": pet_data.get("icon_url"),
+                    "source": pet_data.get("source", ""),
+                    "creature_type": pet_data.get("creature_type", ""),
+                    "creature_id": pet_data.get("creature_id"),
+                    "is_tradable": True
+                })
                 
-                try:
-                    # Récupérer les détails du pet
-                    pet_details = api.get_pet_details(pet_id)
-                    if not pet_details:
-                        continue
-                    
-                    # Ne garder que les pets tradables
-                    if not pet_details.get("is_tradable", False):
-                        continue
-                    
-                    batch_pets.append({
-                        "pet_id": pet_id,
-                        "name": pet_details.get("name", ""),
-                        "icon_url": pet_details.get("icon_url"),
-                        "source": pet_details.get("source", ""),
-                        "creature_type": pet_details.get("creature_type", ""),
-                        "creature_id": pet_details.get("creature_id"),
-                        "is_tradable": True
-                    })
-                    
-                    synced_count += 1
-                    
-                    # Sauvegarder par batch
-                    if len(batch_pets) >= BATCH_SIZE:
-                        dm.save_pets_batch(batch_pets)
-                        batch_pets = []
-                        # Petit sleep pour laisser respirer le serveur si besoin
-                        # time.sleep(0.05) 
-                    
-                except Exception as e:
-                    continue
+                synced_count += 1
+                
+                # Sauvegarder par batch
+                if len(batch_pets) >= BATCH_SIZE:
+                    dm.save_pets_batch(batch_pets)
+                    batch_pets = []
             
             # Sauvegarder le reste
             if batch_pets:
@@ -597,9 +598,12 @@ class UpdateManager:
         except Exception as e:
             print(f"Error syncing pets: {e}")
     
-    def _fetch_pet_icons(self, api, dm):
-        """Récupère les icônes manquantes pour les pets"""
-        pets_without_icons = dm.get_pets_without_icons(limit=100)
+    def _fetch_pet_icons(self, api, dm, limit=100):
+        """Récupère les icônes manquantes pour les pets. limit=None pour tout récupérer."""
+        pets_without_icons = dm.get_pets_without_icons(limit=limit or 999999)
+        
+        if pets_without_icons:
+            print(f"Fetching icons for {len(pets_without_icons)} pets...")
         
         for pet in pets_without_icons:
             if self._stop_event.is_set():
