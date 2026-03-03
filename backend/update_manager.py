@@ -536,7 +536,8 @@ class UpdateManager:
                                             slot_id = slot_type.get("id")
                                             if slot_id and slot_name:
                                                 # Essayer de résoudre le nom du slot en vrai item
-                                                real_item_id = api.search_item_by_name(slot_name)
+                                                # Approche structurée : slot_type_id → category_id → item_id
+                                                real_item_id = api.search_item_by_modified_crafting_category(slot_id, slot_name)
                                                 if real_item_id:
                                                     reagents.append({
                                                         "item_id": real_item_id,

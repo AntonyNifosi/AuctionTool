@@ -260,11 +260,58 @@ class BlizzardAPI:
         
         return list(all_items_dict.values())
     
+    def search_item_by_modified_crafting_category(self, slot_type_id: int, slot_name: str) -> Optional[int]:
+        """
+        Résout un slot de craft modifié vers un vrai item_id.
+        
+        Approche : 
+        1. Appelle /data/wow/modified-crafting/reagent-slot-type/{slot_type_id}
+           pour obtenir les compatible_categories
+        2. Utilise le premier category.id pour chercher les items via
+           /data/wow/search/item?modified_crafting.category.id=<cat_id>
+        3. Retourne le rang 1 (plus petit ID d'item) de ce groupe
+        4. Fallback : recherche textuelle par nom si l'approche structurée échoue
+        """
+        try:
+            # Étape 1 : récupérer les catégories compatibles du slot type
+            slot_data = self._make_request(
+                f"/data/wow/modified-crafting/reagent-slot-type/{slot_type_id}",
+                STATIC_NAMESPACE
+            )
+            categories = slot_data.get("compatible_categories", [])
+            if not categories:
+                raise BlizzardAPIError("No compatible_categories found")
+            
+            # Prendre la première catégorie
+            category_id = categories[0].get("id")
+            if not category_id:
+                raise BlizzardAPIError("No category id found")
+            
+            # Étape 2 : chercher les items qui appartiennent à cette catégorie
+            params = {
+                "modified_crafting.category.id": category_id,
+                "_pageSize": 10,
+                "_page": 1,
+            }
+            data = self._make_request("/data/wow/search/item", STATIC_NAMESPACE, params)
+            results = data.get("results", [])
+            
+            if not results:
+                raise BlizzardAPIError(f"No items found for category {category_id}")
+            
+            # Étape 3 : prendre le rang 1 (item_id le plus petit = rang de base)
+            item_ids = sorted([r["data"]["id"] for r in results])
+            return item_ids[0]
+            
+        except BlizzardAPIError:
+            # Fallback : recherche textuelle si l'approche structurée échoue
+            return self.search_item_by_name(slot_name)
+    
     def search_item_by_name(self, item_name: str) -> Optional[int]:
         """
         Recherche un item par nom exact via l'API Search.
         Retourne l'item_id du premier résultat correspondant, ou None.
-        Préfère les items de rang 1 (qualité de base) si plusieurs résultats.
+        Utilisé en fallback de search_item_by_modified_crafting_category.
         """
         try:
             params = {
@@ -278,7 +325,6 @@ class BlizzardAPI:
             if not results:
                 return None
             
-            # Chercher un résultat avec nom exact (l'API fait du fuzzy matching)
             exact_matches = []
             for item in results:
                 item_data = item.get("data", {})
@@ -291,8 +337,6 @@ class BlizzardAPI:
             if not exact_matches:
                 return None
             
-            # Préférer l'item de rang le plus bas (qualité de base)
-            # Les items craftés ont souvent 3 rangs (IDs consécutifs)
             exact_matches.sort(key=lambda x: x.get("id", 0))
             return exact_matches[0]["id"]
             
