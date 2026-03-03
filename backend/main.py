@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from .routers import realms, items, prices, profits, pets, update, collection
+from .routers import realms, items, prices, profits, pets, update, collection, auth
 
 # Background scheduler state
 _scheduler_task = None
@@ -127,6 +127,7 @@ app.include_router(profits.router, prefix="/api/profits", tags=["Profits"])
 app.include_router(pets.router, prefix="/api/pets", tags=["Pets"])
 app.include_router(update.router, prefix="/api/update", tags=["Update"])
 app.include_router(collection.router, prefix="/api/collection", tags=["Collection"])
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 
 
 @app.get("/")

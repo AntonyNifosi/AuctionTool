@@ -11,9 +11,18 @@ const API_BASE = '/api';
 async function request(endpoint, options = {}) {
     const response = await fetch(`${API_BASE}${endpoint}`, options);
     if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `API Error: ${response.status} ${response.statusText}`);
     }
     return response.json();
+}
+
+/**
+ * Wrapper avec auth token dans le header
+ */
+function authHeaders() {
+    const token = localStorage.getItem('adminToken');
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
 }
 
 export const api = {
@@ -74,28 +83,57 @@ export const api = {
 
     update: {
         /**
-         * Récupère le statut actuel de la mise à jour
+         * Récupère le statut actuel de la mise à jour (public)
          */
         getStatus: () => {
             return request('/update/status');
         },
 
         /**
-         * Lance une mise à jour des données (scan AH)
+         * Lance une mise à jour des données (admin only)
          * @param {Object} params - { force, priority_realm_id }
          */
         start: (params = {}) => {
             const searchParams = new URLSearchParams();
             if (params.force) searchParams.append('force', 'true');
             if (params.priority_realm_id) searchParams.append('priority_realm_id', params.priority_realm_id);
-            
-            return fetch(`${API_BASE}/update/start?${searchParams.toString()}`, {
-                method: 'POST'
+
+            return request(`/update/start?${searchParams.toString()}`, {
+                method: 'POST',
+                headers: authHeaders()
             });
-            // Note: startUpdate retourne parfois une réponse vide ou textuelle, 
-            // donc on gère le .json() différemment dans le composant si besoin, 
-            // mais ici on retourne la Response brute pour flexibilité ou on standardise.
-            // Pour l'instant, RealmContext s'attend à response.ok sans forcément lire le body JSON pour Start.
+        },
+
+        /**
+         * Force la re-synchronisation des recettes (admin only)
+         */
+        syncRecipes: () => {
+            return request('/update/sync-recipes', {
+                method: 'POST',
+                headers: authHeaders()
+            });
+        }
+    },
+
+    auth: {
+        /**
+         * Login admin
+         */
+        login: (password) => {
+            return request('/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
+        },
+
+        /**
+         * Vérifier un token
+         */
+        verify: (token) => {
+            return request('/auth/verify', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
         }
     }
 };

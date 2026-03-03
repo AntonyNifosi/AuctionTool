@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useRealm } from '../../context/RealmContext'
+import { useAuth } from '../../context/AuthContext'
+import { api } from '../../services/api'
 import './Sidebar.css'
 
 function Sidebar() {
@@ -15,6 +17,13 @@ function Sidebar() {
         toggleFavoriteRealm,
         isFavoriteRealm
     } = useRealm()
+
+    const { isAdmin, login, logout } = useAuth()
+
+    const [showLoginModal, setShowLoginModal] = useState(false)
+    const [loginPassword, setLoginPassword] = useState('')
+    const [loginError, setLoginError] = useState('')
+    const [loginLoading, setLoginLoading] = useState(false)
 
     const navItems = [
         { path: '/', icon: '🏠', label: 'Objets Housing', group: 'Housing' },
@@ -31,10 +40,9 @@ function Sidebar() {
 
     const formatLastUpdate = () => {
         if (!updateStatus.lastUpdateTime) return null
-        // API returns UTC timestamp, ensure we parse it as UTC
         let dateStr = updateStatus.lastUpdateTime
         if (!dateStr.endsWith('Z') && !dateStr.includes('+')) {
-            dateStr += 'Z' // Append Z to indicate UTC
+            dateStr += 'Z'
         }
         const date = new Date(dateStr)
         const now = new Date()
@@ -57,6 +65,31 @@ function Sidebar() {
     useEffect(() => {
         setIsOpen(false)
     }, [location.pathname])
+
+    const handleLogin = async (e) => {
+        e.preventDefault()
+        setLoginError('')
+        setLoginLoading(true)
+        try {
+            const result = await login(loginPassword)
+            if (result.success) {
+                setShowLoginModal(false)
+                setLoginPassword('')
+            }
+        } catch (err) {
+            setLoginError(err.message || 'Mot de passe incorrect')
+        } finally {
+            setLoginLoading(false)
+        }
+    }
+
+    const handleSyncRecipes = async () => {
+        try {
+            await api.update.syncRecipes()
+        } catch (err) {
+            console.error('Failed to sync recipes:', err)
+        }
+    }
 
     return (
         <>
@@ -147,23 +180,37 @@ function Sidebar() {
                     </div>
                 </div>
 
-                {/* Update Controls */}
-                <div className="sidebar-section">
-                    <button
-                        className="btn btn-primary refresh-btn"
-                        onClick={() => startUpdate(true)}
-                        disabled={updateStatus.isRunning}
-                    >
-                        {updateStatus.isRunning ? (
-                            <>
-                                <span className="spinner"></span>
-                                Mise à jour...
-                            </>
-                        ) : (
-                            <>🔄 Rafraîchir les données</>
-                        )}
-                    </button>
+                {/* Admin Controls - Only visible when logged in */}
+                {isAdmin && (
+                    <div className="sidebar-section">
+                        <div className="section-title">🔧 Administration</div>
+                        <button
+                            className="btn btn-primary refresh-btn"
+                            onClick={() => startUpdate(true)}
+                            disabled={updateStatus.isRunning}
+                        >
+                            {updateStatus.isRunning ? (
+                                <>
+                                    <span className="spinner"></span>
+                                    Mise à jour...
+                                </>
+                            ) : (
+                                <>🔄 Rafraîchir les données</>
+                            )}
+                        </button>
 
+                        <button
+                            className="btn btn-secondary sync-recipes-btn"
+                            onClick={handleSyncRecipes}
+                            disabled={updateStatus.isRunning}
+                        >
+                            📜 Sync Recettes
+                        </button>
+                    </div>
+                )}
+
+                {/* Update Status - Always visible */}
+                <div className="sidebar-section">
                     {updateStatus.isRunning && (
                         <div className="update-progress">
                             <div className="progress-text">{updateStatus.statusMessage}</div>
@@ -196,7 +243,56 @@ function Sidebar() {
                         <span className="trend trend-stable">➡️ 0%</span> Prix stable
                     </div>
                 </div>
+
+                {/* Login/Logout Button */}
+                <div className="sidebar-section sidebar-auth">
+                    {isAdmin ? (
+                        <button className="btn btn-auth btn-logout" onClick={logout}>
+                            🚪 Déconnexion
+                        </button>
+                    ) : (
+                        <button className="btn btn-auth btn-login" onClick={() => setShowLoginModal(true)}>
+                            🔑 Admin
+                        </button>
+                    )}
+                </div>
             </aside>
+
+            {/* Login Modal */}
+            {showLoginModal && (
+                <div className="login-modal-backdrop" onClick={() => setShowLoginModal(false)}>
+                    <div className="login-modal" onClick={(e) => e.stopPropagation()}>
+                        <h3>🔑 Connexion Admin</h3>
+                        <form onSubmit={handleLogin}>
+                            <input
+                                type="password"
+                                className="login-input"
+                                placeholder="Mot de passe"
+                                value={loginPassword}
+                                onChange={(e) => setLoginPassword(e.target.value)}
+                                autoFocus
+                            />
+                            {loginError && <p className="login-error">{loginError}</p>}
+                            <div className="login-actions">
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={() => setShowLoginModal(false)}
+                                >
+                                    Annuler
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="btn btn-primary"
+                                    disabled={loginLoading || !loginPassword}
+                                >
+                                    {loginLoading ? 'Connexion...' : 'Se connecter'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </>
     )
 }

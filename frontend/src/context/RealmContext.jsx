@@ -105,10 +105,8 @@ export function RealmProvider({ children }) {
             if (selectedRealm) {
                 params.priority_realm_id = selectedRealm.id
             }
-            const response = await api.update.start(params)
-            if (response.ok) {
-                fetchUpdateStatus()
-            }
+            await api.update.start(params)
+            fetchUpdateStatus()
         } catch (error) {
             console.error('Failed to start update:', error)
         }

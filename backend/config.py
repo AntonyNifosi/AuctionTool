@@ -11,6 +11,10 @@ load_dotenv()
 BLIZZARD_CLIENT_ID = os.getenv("BLIZZARD_CLIENT_ID", "")
 BLIZZARD_CLIENT_SECRET = os.getenv("BLIZZARD_CLIENT_SECRET", "")
 
+# Admin Authentication
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY", "wow-housing-default-secret-change-me")
+
 # Configuration API Blizzard - Région EU
 API_REGION = "eu"
 API_BASE_URL = f"https://{API_REGION}.api.blizzard.com"
