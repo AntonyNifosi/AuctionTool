@@ -260,6 +260,45 @@ class BlizzardAPI:
         
         return list(all_items_dict.values())
     
+    def search_item_by_name(self, item_name: str) -> Optional[int]:
+        """
+        Recherche un item par nom exact via l'API Search.
+        Retourne l'item_id du premier résultat correspondant, ou None.
+        Préfère les items de rang 1 (qualité de base) si plusieurs résultats.
+        """
+        try:
+            params = {
+                "name.fr_FR": item_name,
+                "_pageSize": 10,
+                "_page": 1
+            }
+            data = self._make_request("/data/wow/search/item", STATIC_NAMESPACE, params)
+            results = data.get("results", [])
+            
+            if not results:
+                return None
+            
+            # Chercher un résultat avec nom exact (l'API fait du fuzzy matching)
+            exact_matches = []
+            for item in results:
+                item_data = item.get("data", {})
+                name = item_data.get("name", {})
+                if isinstance(name, dict):
+                    name = name.get("fr_FR", "")
+                if name == item_name:
+                    exact_matches.append(item_data)
+            
+            if not exact_matches:
+                return None
+            
+            # Préférer l'item de rang le plus bas (qualité de base)
+            # Les items craftés ont souvent 3 rangs (IDs consécutifs)
+            exact_matches.sort(key=lambda x: x.get("id", 0))
+            return exact_matches[0]["id"]
+            
+        except BlizzardAPIError:
+            return None
+    
     def get_item_classes(self) -> List[Dict]:
         """
         Récupère les classes d'items (pour filtrer les items de housing)

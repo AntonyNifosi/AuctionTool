@@ -124,6 +124,7 @@ async def sync_recipes(_admin: bool = Depends(require_admin)):
     
     thread = threading.Thread(target=_run_recipe_sync)
     thread.daemon = True
+    mgr._thread = thread  # Required for is_running() to detect the thread
     thread.start()
     
     return {

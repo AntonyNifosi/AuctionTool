@@ -535,12 +535,21 @@ class UpdateManager:
                                                 slot_name = slot_name.get("fr_FR") or slot_name.get("en_US") or ""
                                             slot_id = slot_type.get("id")
                                             if slot_id and slot_name:
-                                                # ID négatif pour distinguer des vrais items
-                                                reagents.append({
-                                                    "item_id": -slot_id,
-                                                    "name": slot_name,
-                                                    "quantity": 1
-                                                })
+                                                # Essayer de résoudre le nom du slot en vrai item
+                                                real_item_id = api.search_item_by_name(slot_name)
+                                                if real_item_id:
+                                                    reagents.append({
+                                                        "item_id": real_item_id,
+                                                        "name": slot_name,
+                                                        "quantity": 1
+                                                    })
+                                                else:
+                                                    # Fallback: ID négatif pour les slots non résolus
+                                                    reagents.append({
+                                                        "item_id": -slot_id,
+                                                        "name": slot_name,
+                                                        "quantity": 1
+                                                    })
                                         
                                         if reagents:
                                             dm.save_recipe_reagents(recipe_id, reagents)
